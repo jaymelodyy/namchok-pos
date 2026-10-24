@@ -25,7 +25,7 @@ try {
   await step('รับรถใหม่ (ทะเบียนที่ไม่เคยมี)', async () => {
     await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
     await page.fill('#plate-input', '5กจ 9087');
-    await page.fill('#plate-province', 'นครศรีธรรมราช');
+    await page.selectOption('#plate-province', 'นครศรีธรรมราช');
     await page.waitForTimeout(800);
     await page.fill('#c-name', 'คุณวิชัย (ตัวอย่าง)');
     await page.fill('#c-phone', '0800000009');

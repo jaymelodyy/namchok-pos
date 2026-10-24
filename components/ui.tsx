@@ -234,7 +234,8 @@ export function Plate({ plate, province, className, glint }: { plate: string; pr
 export function PlateInput({
   plate, province, onPlate, onProvince, autoFocus,
 }: { plate: string; province: string; onPlate: (v: string) => void; onProvince: (v: string) => void; autoFocus?: boolean }) {
-  const listId = useId();
+  // จังหวัดเป็นรายการให้เลือก (select) — เดิมใช้ช่องพิมพ์+datalist ซึ่งกรองรายการตามข้อความที่มีอยู่ ทำให้เห็นแค่ "สงขลา" และเปลี่ยนไม่ได้
+  const options = PROVINCES.includes(province) || !province ? PROVINCES : [province, ...PROVINCES];
   return (
     <div className="plate glint px-4 pb-3 pt-2 sm:px-8">
       <label htmlFor="plate-input" className="sr-only">ทะเบียนรถ</label>
@@ -246,13 +247,13 @@ export function PlateInput({
       />
       <div className="mx-auto flex max-w-[16rem] items-center justify-center border-t border-[#7a5a17]/40 pt-1.5">
         <label htmlFor="plate-province" className="sr-only">จังหวัดบนป้าย</label>
-        <input
-          id="plate-province" list={listId} value={province} onChange={(e) => onProvince(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          placeholder={DEFAULT_PROVINCE} autoComplete="off"
-          className="w-full bg-transparent text-center font-sans text-lg font-semibold text-[#1b1406] placeholder:text-[#1b1406]/30 focus:outline-none"
-        />
-        <datalist id={listId}>{PROVINCES.map((p) => <option key={p} value={p} />)}</datalist>
+        <select
+          id="plate-province" value={province || DEFAULT_PROVINCE} onChange={(e) => onProvince(e.target.value)}
+          style={{ colorScheme: 'light' }}
+          className="w-full cursor-pointer bg-transparent py-0.5 text-center font-sans text-lg font-semibold text-[#1b1406] [text-align-last:center] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1406]/50"
+        >
+          {options.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle2, ImagePlus } from 'lucide-react';
 import { PageHeader } from '@/components/app-shell';
 import { useToast } from '@/components/providers';
 import { SignaturePad, type SignaturePadHandle } from '@/components/signature-pad';
@@ -12,6 +12,10 @@ import { compressImage } from '@/lib/image';
 import { cx, fmtDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/hooks';
 import type { AnswerState, Answers, CheckPhoto } from '@/lib/types';
+
+const MAX_PHOTOS = 20;
+/** ขั้นที่ฐานข้อมูลยังไม่รับบันทึกเช็คสภาพ (save_condition_check รับเฉพาะ "เช็คสภาพรถ" ถึง "พร้อมทำ") */
+const TOO_EARLY: string[] = ['booked', 'opened'];
 
 const OPTIONS: { value: AnswerState; label: string; tone?: 'ok' | 'bad' | 'mute' }[] = [
   { value: 'ok', label: 'ปกติ', tone: 'ok' },
@@ -37,6 +41,7 @@ export default function CheckPage() {
   const [photos, setPhotos] = useState<CheckPhoto[]>([]);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<null | 'draft' | 'done' | 'photo'>(null);
+  const [progress, setProgress] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const checkId = useRef<string | null>(null);
   const pad = useRef<SignaturePadHandle>(null);
@@ -62,7 +67,8 @@ export default function CheckPage() {
   const { job } = d.detail;
   const template = d.template;
   const done = Boolean(d.check?.completed_at);
-  const locked = done || ['in_progress', 'qc', 'awaiting_payment', 'closed', 'cancelled'].includes(job.status);
+  const tooEarly = TOO_EARLY.includes(job.status);
+  const locked = done || tooEarly || ['in_progress', 'qc', 'awaiting_payment', 'closed', 'cancelled'].includes(job.status);
   const answered = template.checklist.filter((i) => answers[i.key]?.state).length;
   const defectNoNote = template.checklist.some((i) => answers[i.key]?.state === 'defect' && !(answers[i.key]?.note ?? '').trim());
 
@@ -85,18 +91,40 @@ export default function CheckPage() {
     finally { setBusy(null); }
   };
 
-  const addPhoto = async (file: File) => {
+  /** แนบได้หลายรูปในครั้งเดียว (อัปโหลดทีละรูปตามลำดับ) — รูปที่สำเร็จแล้วไม่หาย แม้รูปถัดไปจะล้มเหลว */
+  const addPhotos = async (files: File[]) => {
+    if (!files.length) return;
+    const room = MAX_PHOTOS - photos.length;
+    if (room <= 0) { setErr(`แนบได้สูงสุด ${MAX_PHOTOS} รูป`); return; }
+    const list = files.slice(0, room);
     setBusy('photo'); setErr(null);
+    let ok = 0;
     try {
       const cid = checkId.current ?? await persist();
-      const img = await compressImage(file);
-      const path = await uploadFile(`${profile.branch_id}/${id}/photo/${crypto.randomUUID()}.${img.ext}`, img.blob, img.type);
-      const photoId = await addCheckPhoto(cid, path);
-      const u = await signedUrls([path]);
-      setPhotos((p) => [...p, { id: photoId, check_id: cid, storage_path: path, caption: null }]);
-      setUrls((x) => ({ ...x, ...u }));
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); if (fileRef.current) fileRef.current.value = ''; }
+      for (const file of list) {
+        setProgress(`${ok + 1}/${list.length}`);
+        const img = await compressImage(file);
+        const path = await uploadFile(`${profile.branch_id}/${id}/photo/${crypto.randomUUID()}.${img.ext}`, img.blob, img.type);
+        const photoId = await addCheckPhoto(cid, path);
+        const u = await signedUrls([path]);
+        setPhotos((p) => [...p, { id: photoId, check_id: cid, storage_path: path, caption: null }]);
+        setUrls((x) => ({ ...x, ...u }));
+        ok += 1;
+      }
+      if (files.length > room) setErr(`แนบได้สูงสุด ${MAX_PHOTOS} รูป — ข้ามรูปที่เกิน ${files.length - room} รูป`);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      const msg = ok > 0 ? `แนบสำเร็จ ${ok} รูป แต่รูปที่ ${ok + 1} ไม่สำเร็จ: ${m}` : `แนบรูปไม่สำเร็จ: ${m}`;
+      setErr(msg); toast.err(msg);
+    } finally { setBusy(null); setProgress(''); if (fileRef.current) fileRef.current.value = ''; }
+  };
+
+  /** camera=true เปิดกล้องหลังบนมือถือ ; false เปิดหน้าต่างเลือกไฟล์/คลังรูป (เลือกได้หลายรูป) — ใช้ input ตัวเดียวสลับ attribute */
+  const pickPhotos = (camera: boolean) => {
+    const el = fileRef.current;
+    if (!el) return;
+    if (camera) el.setAttribute('capture', 'environment'); else el.removeAttribute('capture');
+    el.click();
   };
 
   const finish = async () => {
@@ -122,7 +150,15 @@ export default function CheckPage() {
       <PageHeader title={template.name} subtitle={job.job_no} back={`/jobs/${id}`} right={<Plate plate={job.plate} province={job.plate_province} className="mr-2 text-[1.1rem]" />} />
 
       <div className="space-y-7 px-4 pb-36 pt-5">
-        {locked && (
+        {tooEarly ? (
+          <p role="status" data-testid="check-too-early" className="flex items-start gap-2 rounded-xl border border-warn/50 bg-warn/10 px-4 py-3 text-[15px] text-warn">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+            <span>
+              ใบงานยังไม่เข้าขั้นเช็คสภาพรถ ยังบันทึก แนบรูป และให้ลูกค้าเซ็นไม่ได้ —
+              กลับไปหน้าใบงานแล้วกด “{job.status === 'booked' ? 'รับรถเข้าร้าน' : 'เริ่มเช็คสภาพรถ'}” ก่อน{job.status === 'booked' ? ' (แล้วกด “เริ่มเช็คสภาพรถ” ต่อ)' : ''}
+            </span>
+          </p>
+        ) : locked && (
           <p className="flex items-center gap-2 rounded-xl border border-ok/40 bg-ok/10 px-4 py-3 text-[15px] text-ok">
             <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden />
             {done ? `ยืนยันแล้ว ลูกค้าเซ็นเมื่อ ${fmtDateTime(d.check?.signed_at)}` : 'งานเริ่มแล้ว แก้ไขเช็คสภาพไม่ได้'}
@@ -164,25 +200,35 @@ export default function CheckPage() {
         <section aria-label="รูปถ่าย">
           <div className="flex items-baseline justify-between pb-2">
             <h2 className="section-title">รูปถ่ายสภาพรถ</h2>
-            <span className={cx('num text-[14px]', photos.length >= template.min_photos ? 'text-ok' : 'text-warn')}>{photos.length}/{template.min_photos} รูปขั้นต่ำ</span>
+            <span className={cx('num text-[14px]', photos.length >= template.min_photos ? 'text-ok' : 'text-warn')} data-testid="photo-count">
+              แนบแล้ว {photos.length} รูป · ขั้นต่ำ {template.min_photos} · ได้สูงสุด {MAX_PHOTOS}
+            </span>
           </div>
           <div className="grid grid-cols-3 gap-2">
             {photos.map((p) => (
               // eslint-disable-next-line @next/next/no-img-element
               <img key={p.id} src={urls[p.storage_path]} alt="รูปสภาพรถ" className="aspect-square w-full rounded-lg border border-rule object-cover" />
             ))}
-            {!locked && (
-              <button
-                type="button" onClick={() => fileRef.current?.click()} disabled={busy === 'photo'}
-                className="grid aspect-square place-items-center rounded-lg border border-dashed border-gold/50 text-gold-hi transition-colors hover:bg-gold/10 disabled:opacity-60"
-              >
-                <span className="flex flex-col items-center gap-1 text-[13px]"><Camera className="h-6 w-6" aria-hidden />{busy === 'photo' ? 'กำลังอัปโหลด' : 'ถ่ายรูป'}</span>
-              </button>
+            {!locked && photos.length < MAX_PHOTOS && (
+              <>
+                <button
+                  type="button" onClick={() => pickPhotos(true)} disabled={busy !== null}
+                  className="grid aspect-square place-items-center rounded-lg border border-dashed border-gold/50 text-gold-hi transition-colors hover:bg-gold/10 disabled:opacity-60"
+                >
+                  <span className="flex flex-col items-center gap-1 text-[13px]"><Camera className="h-6 w-6" aria-hidden />{busy === 'photo' ? `กำลังอัปโหลด ${progress}` : 'ถ่ายรูป'}</span>
+                </button>
+                <button
+                  type="button" onClick={() => pickPhotos(false)} disabled={busy !== null}
+                  className="grid aspect-square place-items-center rounded-lg border border-dashed border-gold/50 text-gold-hi transition-colors hover:bg-gold/10 disabled:opacity-60"
+                >
+                  <span className="flex flex-col items-center gap-1 text-[13px]"><ImagePlus className="h-6 w-6" aria-hidden />เลือกรูป (หลายรูปได้)</span>
+                </button>
+              </>
             )}
           </div>
           <input
-            ref={fileRef} type="file" accept="image/*" capture="environment" className="sr-only" aria-label="ถ่ายหรือเลือกรูป"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void addPhoto(f); }}
+            ref={fileRef} type="file" accept="image/*" multiple className="sr-only" aria-label="ถ่ายหรือเลือกรูป"
+            onChange={(e) => void addPhotos(Array.from(e.target.files ?? []))}
           />
         </section>
 
@@ -194,6 +240,8 @@ export default function CheckPage() {
               <img src={urls[d.check.signature_path]} alt="ลายเซ็นลูกค้า" className="h-40 w-full rounded-xl border border-rule bg-white object-contain" />
               <p className="text-[14px] text-dim">ผู้เซ็น {d.check.signed_by_name}</p>
             </div>
+          ) : locked ? (
+            <p className="text-[15px] text-mute">ยังไม่มีลายเซ็น</p>
           ) : (
             <div className="space-y-4">
               <Field label="ชื่อผู้เซ็น" htmlFor="signed-by"><input id="signed-by" className="field" value={signedBy} onChange={(e) => setSignedBy(e.target.value)} /></Field>

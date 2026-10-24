@@ -126,7 +126,7 @@ try {
 
   await step('เปิดใบงานใหม่ (ทะเบียนใหม่) เพื่อทดสอบยกเลิก', async () => {
     await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
-    await page.fill('#plate-input', 'ฬฬ 1111'); await page.fill('#plate-province', 'สงขลา');
+    await page.fill('#plate-input', 'ฬฬ 1111'); await page.selectOption('#plate-province', 'สงขลา');
     await page.waitForTimeout(700);
     await page.fill('#c-name', 'คุณทดสอบยกเลิก (ตัวอย่าง)');
     await btn('เปิดใบงาน').click();

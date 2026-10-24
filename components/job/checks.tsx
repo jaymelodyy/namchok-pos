@@ -15,6 +15,7 @@ export function ChecksPanel({
   const [reopening, setReopening] = useState<CheckRequirement | null>(null);
   const done = checks.filter((c) => c.completed).length;
   const canEditChecks = status !== 'cancelled' && status !== 'closed';
+  const tooEarly = status === 'booked' || status === 'opened';
 
   return (
     <section aria-labelledby="checks-h">
@@ -45,11 +46,16 @@ export function ChecksPanel({
               {canReopen && c.completed && BEFORE_START.includes(status) && (
                 <Button variant="ghost" small onClick={() => setReopening(c)} aria-label={`เปิดแก้ ${c.template_name}`}><RotateCcw className="h-4 w-4" aria-hidden /></Button>
               )}
-              {canEditChecks && (
+              {canEditChecks && (tooEarly && !c.completed ? (
+                // ขั้น "เปิดงาน"/"จองคิว" ฐานข้อมูลยังไม่รับบันทึกเช็คสภาพ — บอกให้กดเดินขั้นก่อน แทนที่จะพาไปหน้าที่บันทึกไม่ได้
+                <span className="max-w-[9.5rem] text-right text-[13px] leading-snug text-warn" data-testid="check-wait-start">
+                  กด “เริ่มเช็คสภาพรถ” ก่อน
+                </span>
+              ) : (
                 <Link href={`/jobs/${jobId}/check/${c.template_id}`} className={cx('btn btn-sm', c.completed ? 'btn-ghost' : 'btn-outline')}>
                   {c.completed ? 'ดู' : state === 'draft' ? 'ทำต่อ' : 'เริ่มตรวจ'}<ChevronRight className="h-4 w-4" aria-hidden />
                 </Link>
-              )}
+              ))}
             </li>
           );
         })}
