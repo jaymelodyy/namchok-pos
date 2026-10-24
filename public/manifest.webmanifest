@@ -1,0 +1,18 @@
+{
+  "name": "นำโชคออโต้แอร์ ระบบหน้าร้าน",
+  "short_name": "นำโชค POS",
+  "description": "ใบสั่งงานและจุดรับชำระเงินสำหรับร้านแอร์ ฟิล์ม และแบตเตอรี่รถยนต์",
+  "lang": "th",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0907",
+  "theme_color": "#0A0907",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

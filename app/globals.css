@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: #0a0907;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-lacquer font-sans text-ivory antialiased;
+  min-height: 100dvh;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+:focus-visible { outline: 2px solid #f0d58a; outline-offset: 2px; }
+::selection { background: rgba(210, 166, 64, 0.35); }
+
+.num { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+  /* ---------- ป้ายทะเบียนทอง : วัสดุหลักของแบรนด์ ---------- */
+  .plate {
+    position: relative;
+    overflow: hidden;
+    border-radius: 10px;
+    color: #1b1406;
+    background: linear-gradient(172deg, #f3dc91 0%, #ddb44c 38%, #c79a36 64%, #e6c56b 100%);
+    box-shadow:
+      inset 0 0 0 2px #7a5a17,
+      inset 0 0 0 4px rgba(247, 231, 176, 0.65),
+      0 14px 34px -16px rgba(210, 166, 64, 0.55);
+  }
+  .plate-text {
+    font-family: 'Prompt', 'IBM Plex Sans Thai', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 0 rgba(255, 243, 196, 0.55);
+  }
+  .glint::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 38%;
+    pointer-events: none;
+    background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+    transform: translateX(-120%);
+    @apply animate-glint;
+  }
+
+  /* ---------- ปุ่ม ---------- */
+  .btn {
+    @apply inline-flex min-h-tap select-none items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-[15px] font-semibold transition-colors;
+  }
+  .btn-primary { @apply bg-gold text-lacquer hover:bg-gold-hi active:bg-gold-hi disabled:bg-gold-dim disabled:text-mute; }
+  .btn-outline { @apply border border-gold/50 text-gold-hi hover:bg-gold/10 active:bg-gold/15 disabled:border-rule disabled:text-mute; }
+  .btn-ghost { @apply text-dim hover:bg-inset hover:text-ivory disabled:text-mute; }
+  .btn-danger { @apply border border-bad/60 text-bad hover:bg-bad/10 disabled:border-rule disabled:text-mute; }
+  .btn-sm { @apply min-h-[40px] rounded-lg px-3.5 py-1.5 text-sm; }
+
+  /* ---------- ช่องกรอก ---------- */
+  .field {
+    @apply min-h-tap w-full rounded-xl border border-rule bg-inset px-4 py-2.5 text-[16px] text-ivory placeholder:text-mute;
+    @apply focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold;
+  }
+  .field:disabled { @apply opacity-60; }
+  select.field { @apply appearance-none bg-no-repeat pr-10; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23D2A640' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-position: right 14px center; }
+  .label { @apply mb-1.5 block text-sm font-medium text-dim; }
+  .hint { @apply mt-1 text-[13px] text-mute; }
+
+  /* ---------- รายการแบบสมุดบัญชี: เส้นคั่นแทนกล่อง ---------- */
+  .ledger > * + * { @apply border-t border-rule; }
+  .section-title { @apply font-display text-[17px] font-semibold text-ivory; }
+}
+
+@media print {
+  html, body { background: #fff !important; color: #000 !important; }
+  .no-print { display: none !important; }
+  .print-sheet { background: #fff !important; color: #000 !important; border: 0 !important; box-shadow: none !important; }
+  .print-sheet * { color: #000 !important; border-color: #bbb !important; }
+}
