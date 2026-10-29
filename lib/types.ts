@@ -118,9 +118,10 @@ export interface Requisition {
   note: string | null; requested_at: string; prepared_at: string | null; delivered_at: string | null; voided_at: string | null; void_reason: string | null;
   lines: RequisitionLine[];
 }
-/** ทีมช่างของใบงาน (จาก RPC job_crew_info) */
+/** ทีมช่างของใบงาน (จาก RPC job_crew_info) — required_crew = ค่าที่ผู้ดูแลตั้งเองต่อใบงาน (null = ใช้กติกาแคตตาล็อก) */
 export interface CrewInfo {
-  job_id: string; crew_required: number; crew_active: number; member_ids: string[]; member_names: string[]; mine: boolean;
+  job_id: string; crew_required: number; crew_active: number; required_crew: number | null;
+  member_ids: string[]; member_names: string[]; mine: boolean;
 }
 export type TechState = 'free' | 'assigned' | 'busy';
 export interface TechnicianRow {

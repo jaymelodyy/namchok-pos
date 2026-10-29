@@ -291,7 +291,17 @@ export const acceptJob = (jobId: string) => rpc<void>('accept_job', { p_job_id: 
 export const releaseJob = (jobId: string) => rpc<void>('release_job', { p_job_id: jobId });
 export const assignTechnician = (jobId: string, userId: string) => rpc<void>('assign_technician', { p_job_id: jobId, p_user_id: userId });
 export const removeTechnician = (jobId: string, userId: string, reason: string) => rpc<void>('remove_technician', { p_job_id: jobId, p_user_id: userId, p_reason: reason });
-const normCrew = (c: CrewInfo): CrewInfo => ({ ...c, crew_required: num(c.crew_required), crew_active: num(c.crew_active) });
+/** ตั้งทีมช่างหลายคนครั้งเดียวจบ (แทนที่ทีมเดิมด้วยรายชื่อที่ให้มา — owner/admin) */
+export const setJobCrew = (jobId: string, userIds: string[], reason?: string) =>
+  rpc<void>('set_job_crew', { p_job_id: jobId, p_user_ids: userIds, p_reason: reason || undefined });
+/** เพิ่มช่างหลายคนพร้อมกันโดยไม่แตะคนเดิม (owner/admin) */
+export const addJobCrew = (jobId: string, userIds: string[]) => rpc<void>('add_job_crew', { p_job_id: jobId, p_user_ids: userIds });
+/** กำหนด "จำนวนช่างที่ต้องใช้" เองต่อใบงาน โดยไม่แก้แคตตาล็อก (owner/admin) */
+export const setCrewRequired = (jobId: string, count: number) => rpc<void>('set_job_crew_required', { p_job_id: jobId, p_count: count });
+const normCrew = (c: CrewInfo): CrewInfo => ({
+  ...c, crew_required: num(c.crew_required), crew_active: num(c.crew_active),
+  required_crew: c.required_crew == null ? null : num(c.required_crew),
+});
 export async function jobCrewInfo(jobIds: string[]): Promise<Record<string, CrewInfo>> {
   if (!jobIds.length) return {};
   const r = await rpc<CrewInfo[]>('job_crew_info', { p_jobs: jobIds });

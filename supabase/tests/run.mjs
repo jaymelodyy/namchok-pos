@@ -27,6 +27,7 @@ const files = [
   'supabase/migrations/0008_qc_labor.sql',
   'supabase/migrations/0009_realtime.sql',
   'supabase/migrations/0010_multi_technician_assignment.sql',
+  'supabase/migrations/0011_owner_crew_control.sql',
   'supabase/seed.sql',
 ];
 
@@ -1452,7 +1453,7 @@ async function main() {
     await rpc(U.admin, 'set_job_crew', { p_job_id: j4, p_user_ids: [U.tech, U.tech2, U.tech3] });
     eq(await activeCrew(j4).length, 3);
     eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [j4] }, { table: true }))[0].crew_required, 4, 'เพดานต้องไม่หดกลับ (กันคนนอกชิงช่องว่าง)');
-    // เอาออกทีละคนผ่าน API เดิม (remove_technician) — ต้องทำงานกับทีม多人ได้
+    // เอาออกทีละคนผ่าน API เดิม (remove_technician) — ต้องทำงานกับทีมหลายคนได้
     await rpc(U.admin, 'remove_technician', { p_job_id: j4, p_user_id: U.tech3, p_reason: 'ถอนตัว' });
     await rpc(U.admin, 'remove_technician', { p_job_id: j4, p_user_id: U.tech2, p_reason: 'ถอนตัว' });
     eq(await activeCrew(j4), [U.tech]);
@@ -1493,7 +1494,7 @@ async function main() {
     await rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech, U.tech2] });
     eq(await activeCrew(j).length, 2);
     await rpc(U.tech, 'advance_job', { p_job_id: j });    // in_progress
-    await rpc(U.tech2, 'advance_job', { p_job_id: j });   // qc (ช่างคนที่ 2 ก็ขยับได้ — ทีม多人)
+    await rpc(U.tech2, 'advance_job', { p_job_id: j });   // qc (ช่างคนที่ 2 ก็ขยับได้ — ทีมหลายคน)
     await rpc(U.admin, 'qc_pass', { p_job_id: j, p_answers: QC_OK });
     await payAndClose(j);
     eq(await statusOf(j), 'completed');
