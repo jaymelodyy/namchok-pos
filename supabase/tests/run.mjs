@@ -26,6 +26,7 @@ const files = [
   'supabase/migrations/0007_assignments_requisitions.sql',
   'supabase/migrations/0008_qc_labor.sql',
   'supabase/migrations/0009_realtime.sql',
+  'supabase/migrations/0010_multi_technician_assignment.sql',
   'supabase/seed.sql',
 ];
 
@@ -172,9 +173,13 @@ async function main() {
     await sq('insert into users(id, branch_id, full_name, role) values ($1,$2,$3,$4)', [u.id, branch, name, role]);
     U[name] = u.id;
   }
-  await mkUser('owner', 'owner'); await mkUser('admin', 'admin'); await mkUser('tech', 'technician');
+  await mkUser('owner', 'owner'); await mkUser('admin', 'admin'); await mkUser('ช่าง 1', 'technician');
   await mkUser('wh', 'warehouse'); await mkUser('owner2', 'owner', B2);
-  await mkUser('tech2', 'technician'); await mkUser('tech3', 'technician');
+  await mkUser('ช่าง 2', 'technician'); await mkUser('ช่าง 3', 'technician'); U.tech = U['ช่าง 1']; U.tech2 = U['ช่าง 2']; U.tech3 = U['ช่าง 3'];
+  // จำลองบัญชีช่างคนที่ 4 ตามโปร덕ชัน (README: สร้างด้วย SQL บน Supabase จริง ไม่ใช่ seed)
+  await sq("insert into auth.users(id, email) values ('00000000-0000-4000-8000-000000000004', 'tech4@test.local')");
+  await sq("insert into users(id, branch_id, full_name, role) values ('00000000-0000-4000-8000-000000000004', $1, 'ช่าง 4', 'technician')", [B]);
+  U.tech4 = '00000000-0000-4000-8000-000000000004';
 
   // =====================================================================
   group('1. Seed / โครงหมวดหมู่');
@@ -879,7 +884,7 @@ async function main() {
     for (const u of [U.tech, U.tech2]) eq((await as(sup, u, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1);
     const info = (await rpc(U.tech, 'job_crew_info', { p_jobs: [jr2] }, { table: true }))[0];
     eq([info.crew_required, info.crew_active, info.mine], [2, 2, true]);
-    eq(info.member_names, ['tech', 'tech2']);
+    eq(info.member_names, ['ช่างหนุ่ม', 'ช่างกิ้ม']);
     eq((await rpc(U.tech3, 'job_crew_info', { p_jobs: [jr2] }, { table: true })).length, 0);
     eq((await rpc(U.wh, 'job_crew_info', { p_jobs: [jr2] }, { table: true })).length, 0);
     eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [jr2] }, { table: true })).length, 1);
@@ -939,19 +944,20 @@ async function main() {
   });
   await test('บอร์ดช่าง ว่าง/มีงาน/กำลังทำ (เฉพาะ owner/admin) คำนวณจากงานที่รับอยู่จริง', async () => {
     await sq("update job_assignments set released_at = now(), release_reason = 'ล้างก่อนเทสต์บอร์ด' where released_at is null");
-    const st = async (u) => Object.fromEntries((await rpc(u, 'technician_board', {}, { table: true })).map((r) => [r.full_name, r.state]));
-    eq(await st(U.admin), { tech: 'free', tech2: 'free', tech3: 'free' });
+    const st = async (u) => Object.fromEntries((await rpc(u, 'technician_board', {}, { table: true })).map((r) => [r.user_id, r.state]));
+    const board = async (u) => { const m = await st(u); return [m[U.tech], m[U.tech2], m[U.tech3], m[U.tech4]]; };
+    eq(await board(U.admin), ['free', 'free', 'free', 'free']);
     const j = await readyJob('บอร์ด 1', [{ code: 'AC-CL-004' }]);
     await accept(j, U.tech2);
-    eq(await st(U.owner), { tech: 'free', tech2: 'assigned', tech3: 'free' });
+    eq(await board(U.owner), ['free', 'assigned', 'free', 'free']);
     await rpc(U.tech2, 'advance_job', { p_job_id: j });
-    eq(await st(U.admin), { tech: 'free', tech2: 'busy', tech3: 'free' });
-    const jobs = (await rpc(U.admin, 'technician_board', {}, { table: true })).find((r) => r.full_name === 'tech2').jobs;
+    eq(await board(U.admin), ['free', 'busy', 'free', 'free']);
+    const jobs = (await rpc(U.admin, 'technician_board', {}, { table: true })).find((r) => r.user_id === U.tech2).jobs;
     eq([jobs.length, jobs[0].job_id, jobs[0].status], [1, j, 'in_progress']);
     await rejects(rpc(U.tech, 'technician_board', {}, { table: true }), /ไม่มีสิทธิ์/);
     await rejects(rpc(U.wh, 'technician_board', {}, { table: true }), /ไม่มีสิทธิ์/);
     await rpc(U.tech2, 'advance_job', { p_job_id: j });   // qc → ช่างไม่ "busy" แล้ว แต่ยังผูกกับงาน
-    eq(await st(U.admin), { tech: 'free', tech2: 'free', tech3: 'free' });
+    eq(await board(U.admin), ['free', 'free', 'free', 'free']);
     await rpc(U.admin, 'qc_pass', { p_job_id: j, p_answers: QC_OK });
   });
   await test('ย้อนสถานะต่ำกว่า "พร้อมทำ" หรือยกเลิกใบงาน → ปล่อยช่างทุกคนอัตโนมัติ พร้อมเหตุผล', async () => {
@@ -1153,8 +1159,8 @@ async function main() {
     await payAndClose(jl1);
     const l = await labor(jl1);
     eq(l.length, 4);
-    eq(l.filter((x) => x.n === 'tech').map((x) => x.a).sort((a, b) => a - b), [50, 200]);
-    eq(l.filter((x) => x.n === 'tech2').map((x) => x.a).sort((a, b) => a - b), [50, 200]);
+    eq(l.filter((x) => x.n === 'ช่างหนุ่ม').map((x) => x.a).sort((a, b) => a - b), [50, 200]);
+    eq(l.filter((x) => x.n === 'ช่างกิ้ม').map((x) => x.a).sort((a, b) => a - b), [50, 200]);
     ok(l.every((x) => x.c === 2), 'crew_actual ต้องเป็น 2');
     eq(l.reduce((s, x) => s + x.a, 0), 500, 'ผลรวม = 400×1 + 100×1');
     eq((await one('select min(earned_on)::text d, max(earned_on)::text e from labor_pay_entries where job_id=$1', [jl1])).d, await today());
@@ -1166,7 +1172,7 @@ async function main() {
     await rpc(U.admin, 'qc_pass', { p_job_id: jl2, p_answers: QC_OK });
     await payAndClose(jl2);
     const l = await labor(jl2);
-    eq(l.map((x) => [x.n, x.a]), [['tech', 33.34], ['tech2', 33.33], ['tech3', 33.33]]);
+    eq(l.map((x) => [x.n, x.a]), [['ช่างหนุ่ม', 33.34], ['ช่างกิ้ม', 33.33], ['ช่างริด', 33.33]]);
     eq(Math.round(l.reduce((s, x) => s + x.a, 0) * 100), 10000);
   });
   await test('ต้องการ 2 ช่างแต่ทำจริงคนเดียว → ได้เต็ม (หารด้วยคนที่ทำจริง) ; คูณจำนวน (qty)', async () => {
@@ -1175,7 +1181,7 @@ async function main() {
     await rpc(U.admin, 'qc_pass', { p_job_id: jl3, p_answers: QC_OK });
     await payAndClose(jl3);
     const l = await labor(jl3);
-    eq(l.map((x) => [x.n, x.c, x.a]).sort((a, b) => a[2] - b[2]), [['tech2', 1, 300], ['tech2', 1, 400]]);
+    eq(l.map((x) => [x.n, x.c, x.a]).sort((a, b) => a[2] - b[2]), [['ช่างกิ้ม', 1, 300], ['ช่างกิ้ม', 1, 400]]);
   });
   await test('บรรทัดที่ labor_rate = 0 และอะไหล่ ไม่สร้างค่าแรง', async () => {
     const j = await quotedJob('แรง 4', [{ code: 'PT-AC-003' }, { code: 'AC-CL-004' }]);
@@ -1380,6 +1386,121 @@ async function main() {
     eq((await as(sup, U.wh, 'select 1 from job_orders')).rowCount, 0);
     eq((await as(sup, U.wh, 'select 1 from labor_pay_entries')).rowCount, 0);
     ok((await as(sup, U.wh, 'select 1 from requisitions')).rowCount > 0);
+  });
+
+  // =====================================================================
+  group('17. Qwen: มอบหมายช่างหลายคนต่อหนึ่งงาน (0010 set_job_crew / add_job_crew)');
+  /** ใบงานที่พร้อมมอบหมาย + ช่างคนที่ 4 สำหรับทดสอบทีม 4 คน */
+  let crewJob;
+  await test('เตรียมการ: ใบงาน "พร้อมทำ" (default ต้องใช้ 1 ช่าง) ; ช่าง 4 คนในสาขา (หนุ่ม/กิ้ม/ริด/วี)', async () => {
+    eq((await sq("select full_name from users where role='technician' and branch_id = $1 and is_active order by full_name", [B])).map(r=>r.full_name),
+       ['ช่างกิ้ม','ช่างริด','ช่างวี','ช่างหนุ่ม'], 'ต้องมีช่าง 4 คนหลังเปลี่ยนชื่อ');
+    crewJob = await readyJob('QWEN-CREW-1', [{ code: 'AC-CL-004' }]);   // service ปกติ → ใช้ 1 ช่าง
+    eq(await statusOf(crewJob), 'ready');
+    eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [crewJob] }, { table: true }))[0].crew_required, 1, 'legacy ยังต้องใช้ 1 คน');
+  });
+  await test('TASK B: mapping เปลี่ยนชื่อช่าง 1→หนุ่ม / 2→กิ้ม / 3→ริด / 4→วี โดย id เดิมคงอยู่', async () => {
+    // migration 0010 ถูก apply ตอนสร้างฐานข้อมูลแล้ว — ตรวจว่า mapping ทำงานบนบัญชีจริง "ช่าง 1..4"
+    for (const [name, want] of [['tech', 'ช่างหนุ่ม'], ['tech2', 'ช่างกิ้ม'], ['tech3', 'ช่างริด'], ['tech4', 'ช่างวี']]) {
+      const r = await one('select full_name from users where id = $1', [U[name]]);
+      eq(r.full_name, want, `ชื่อของ ${name}`);
+      ok(U[name], 'id เดิมต้องยังอยู่ (ไม่สร้างบัญชีใหม่)');
+    }
+    // ชื่ออื่นไม่ถูกกระทบ (ห้ามแก้ช่าง/พนักงานที่ไม่ได้ระบุ)
+    eq((await one("select full_name from users where id = $1", [U.owner])).full_name, 'owner');
+    eq((await one("select full_name from users where id = $1", [U.wh])).full_name, 'wh');
+    // รันซ้ำอีกครั้ง → ไม่มีแถวตรงเงื่อนไขเดิมเหลือ (idempotent จริง)
+    await sup.query(fs.readFileSync(path.join(root, 'supabase/migrations/0010_multi_technician_assignment.sql'), 'utf8'));
+    eq((await one("select count(*)::int c from users where full_name ~ '^ช่าง ?[1-4]$'")).c, 0, 'ต้องไม่มีชื่อเดิมเหลือ');
+    eq((await one('select full_name from users where id = $1', [U.tech])).full_name, 'ช่างหนุ่ม');
+  });
+  await test('สร้างงานที่มีช่าง 1 คนผ่าน set_job_crew (กรณี legacy — ข้อมูลเดิมเข้ากันได้)', async () => {
+    await rpc(U.admin, 'set_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech] });
+    eq(await activeCrew(crewJob), [U.tech]);
+    const info = (await rpc(U.admin, 'job_crew_info', { p_jobs: [crewJob] }, { table: true }))[0];
+    eq([info.crew_required, info.crew_active], [1, 1], 'ทีม 1 คน → required เท่าเดิม (พฤติกรรม legacy คงไว้)');
+  });
+  await test('ป้องกันรายชื่อซ้ำ: ส่ง id เดียวกันสองครั้งใน array เดียว → บันทึกครั้งเดียว', async () => {
+    await rpc(U.admin, 'set_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech, U.tech] });
+    eq(await activeCrew(crewJob), [U.tech], 'ห้ามมีแถวซ้ำ');
+  });
+  await test('แก้ไขรายชื่อ (แทนทั้งทีม): เพิ่มเป็น 2 คน แล้วสลับคน — ประวัติคนเก่าถูกเก็บแบบ soft release', async () => {
+    await rpc(U.admin, 'set_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech, U.tech2] });
+    eq(await activeCrew(crewJob), [U.tech, U.tech2]);
+    const info = (await rpc(U.admin, 'job_crew_info', { p_jobs: [crewJob] }, { table: true }))[0];
+    eq([info.crew_required, info.crew_active], [2, 2], 'ผู้ดูแลตั้ง 2 คน → เพดานขยายเป็น 2');
+    eq(info.member_names.sort(), ['ช่างกิ้ม', 'ช่างหนุ่ม'], 'แสดงรายชื่อผู้รับผิดชอบครบถ้วน (ชื่อใหม่)');
+    // สลับ tech2 ออก ใส่ tech3 เข้า
+    await rpc(U.admin, 'set_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech, U.tech3], p_reason: 'สลับทีมทดสอบ' });
+    eq(await activeCrew(crewJob), [U.tech, U.tech3]);
+    const rel = await one('select released_by, release_reason from job_assignments where job_id = $1 and user_id = $2 and released_at is not null', [crewJob, U.tech2]);
+    eq([rel.release_reason], ['สลับทีมทดสอบ'], 'ต้องมีเหตุผลกำกับเหมือน remove_technician เดิม');
+    eq((await one('select count(*)::int c from job_assignments where job_id = $1', [crewJob])).c, 3, 'ประวัติห้ามถูกลบ (2 รับ + 1 ปล่อย)');
+  });
+  await test('add_job_crew เพิ่มหลายคนพร้อมกัน (atomic) ; ซ้ำ/ไม่ใช่ช่าง → ปฏิเสธทั้งก้อน', async () => {
+    await rpc(U.owner, 'add_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech2, U.tech4] });
+    eq((await activeCrew(crewJob)).sort(), [U.tech, U.tech2, U.tech3, U.tech4].sort());
+    await rejects(rpc(U.admin, 'add_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech] }), /รับงานนี้อยู่แล้ว/);
+    await rejects(rpc(U.admin, 'add_job_crew', { p_job_id: crewJob, p_user_ids: [U.wh] }), /ไม่ใช่ช่าง/);
+    await rejects(rpc(U.tech, 'add_job_crew', { p_job_id: crewJob, p_user_ids: [U.tech4] }), /ไม่มีสิทธิ์|permission|not authorized/i);
+  });
+  await test('ทีม 4 คน: ตั้งครบ, ลดเหลือ 3 (required ไม่หดย้อนหลัง — กัน race), นำออกทีละคนจนเหลือ 1', async () => {
+    const j4 = await readyJob('QWEN-CREW-4', [{ code: 'AC-CL-004' }]);
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j4, p_user_ids: [U.tech, U.tech2, U.tech3, U.tech4] });
+    eq(await activeCrew(j4).length, 4);
+    eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [j4] }, { table: true }))[0].member_names.length, 4, 'รายงานเห็นชื่อครบ 4 คน');
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j4, p_user_ids: [U.tech, U.tech2, U.tech3] });
+    eq(await activeCrew(j4).length, 3);
+    eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [j4] }, { table: true }))[0].crew_required, 4, 'เพดานต้องไม่หดกลับ (กันคนนอกชิงช่องว่าง)');
+    // เอาออกทีละคนผ่าน API เดิม (remove_technician) — ต้องทำงานกับทีม多人ได้
+    await rpc(U.admin, 'remove_technician', { p_job_id: j4, p_user_id: U.tech3, p_reason: 'ถอนตัว' });
+    await rpc(U.admin, 'remove_technician', { p_job_id: j4, p_user_id: U.tech2, p_reason: 'ถอนตัว' });
+    eq(await activeCrew(j4), [U.tech]);
+  });
+  await test('ข้อจำกัดกติกาเดิมยังอยู่: ห้ามเหลือ 0 คนในงานที่เริ่มแล้ว ; งานที่ยังไม่เริ่มล้างทีมได้ ; ผิดขั้น/สาขาอื่น/anon ถูกปฏิเสธ', async () => {
+    const j = await readyJob('QWEN-CREW-2', [{ code: 'AC-CL-004' }]);
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech, U.tech2] });
+    await rpc(U.tech, 'advance_job', { p_job_id: j });                 // in_progress (ช่าง 2 คนช่วยกันทำได้)
+    await rejects(rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [] }), /อย่างน้อย 1 คน/);
+    await rejects(rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: null }), /ต้องระบุรายชื่อช่าง/);
+    // งานขั้น quoting (ยังไม่ถึงพร้อมทำ) ตั้งทีมไม่ได้
+    const jq = await quotedJob('QWEN-CREW-Q', [{ code: 'AC-CL-004' }]);
+    await rejects(rpc(U.admin, 'set_job_crew', { p_job_id: jq, p_user_ids: [U.tech] }), /พร้อมทำ.*กำลังทำ|ตอนนี้/);
+    // anon เรียกไม่ได้ (RLS/revoke)
+    await rejects(rpc('anon', 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech] }), /permission|not authorized|ไม่มีสิทธิ์/i);
+    // เจ้าของอีกสาขาแตะไม่ได้ (_lock_job กั้นข้ามสาขา)
+    await rejects(rpc(U.owner2, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech] }), /ไม่พบใบงาน/);
+    // ล้างทีมเมื่อยังไม่เริ่ม → คืนสถานะว่าง
+    const j2 = await readyJob('QWEN-CREW-3', [{ code: 'AC-CL-004' }]);
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j2, p_user_ids: [U.tech, U.tech2], p_reason: 'ตั้งทีม' });
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j2, p_user_ids: [], p_reason: 'รอสับเปลี่ยนทีม' });
+    eq(await activeCrew(j2), []);
+    eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [j2] }, { table: true }))[0].crew_active, 0);
+  });
+  await test('บันทึกไม่สำเร็จ → ไม่มีข้อมูลค้าง (rollback ทั้งก้อน)', async () => {
+    const j = await readyJob('QWEN-CREW-ROLL', [{ code: 'AC-CL-004' }]);
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech] });       // ทีมเริ่มต้น 1 คน
+    // รายการที่มีทั้งคนดี + คนที่รับอยู่แล้ว → error กลาง loop หลัง insert สำเร็จบางส่วนไม่ได้
+    await rejects(rpc(U.admin, 'add_job_crew', { p_job_id: j, p_user_ids: [U.tech2, U.tech] }), /รับงานนี้อยู่แล้ว/);
+    eq(await activeCrew(j), [U.tech], 'ต้องไม่เห็น tech2 ค้าง (ธุรกรรม rollback)');
+    // set ที่ส่งคนนอกสาขาปนมา → ทั้งหมดล้มเหลว ทีมเดิมคงอยู่
+    await rejects(rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech, U.owner2] }), /ไม่ใช่ช่าง/);
+    eq(await activeCrew(j), [U.tech], 'ทีมเดิมต้องไม่ถูกแตะ');
+  });
+  await test('ผลกระทบต่อค่าแรง (D24 เดิม): ปิดงานทีม 2 คน → หารเท่า 2 คน, ไม่ได้เปลี่ยนกติกาเพราะ 0010', async () => {
+    const j = await readyJob('QWEN-PAY-10', [{ code: 'AC-CL-001' }]);   // service ค่าแรง 400 (ตั้งราคาก่อน)
+    await setPrice('AC-CL-001', 400);
+    await rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech, U.tech2] });
+    eq(await activeCrew(j).length, 2);
+    await rpc(U.tech, 'advance_job', { p_job_id: j });    // in_progress
+    await rpc(U.tech2, 'advance_job', { p_job_id: j });   // qc (ช่างคนที่ 2 ก็ขยับได้ — ทีม多人)
+    await rpc(U.admin, 'qc_pass', { p_job_id: j, p_answers: QC_OK });
+    await payAndClose(j);
+    eq(await statusOf(j), 'completed');
+    const rows = await labor(j);
+    eq(rows.length, 2, 'ต้องมีรายการค่าแรงครบทั้งทีม 2 คน');
+    eq(rows.map((x) => x.a).sort((a, b) => a - b), [200, 200], 'หารเท่าตามคนทำจริง 2 คน (กติกาเดิม D24 — ไม่แตะ)');
+    ok(rows.every((x) => x.c === 2), 'crew_actual = 2');
   });
 
   // =====================================================================
