@@ -15,6 +15,13 @@ const base = {
   user: process.env.PGUSER ?? 'postgres',
   password: process.env.PGPASSWORD,
 };
+// ขั้นเปลี่ยนชื่อช่าง (TASK B) ใน 0010 — ใช้ซ้ำกับ fixture และทดสอบ idempotent โดยไม่ apply ทั้งไฟล์ซ้ำ
+const techRenameSql = (() => {
+  const sql = fs.readFileSync(path.join(root, 'supabase/migrations/0010_multi_technician_assignment.sql'), 'utf8');
+  const at = sql.indexOf('-- ---------- TASK B');
+  if (at < 0) throw new Error('ไม่พบส่วน TASK B ใน 0010');
+  return sql.slice(at);
+})();
 const files = [
   'supabase/tests/00_supabase_stub.sql',
   'supabase/migrations/0001_schema.sql',
@@ -181,6 +188,9 @@ async function main() {
   await sq("insert into auth.users(id, email) values ('00000000-0000-4000-8000-000000000004', 'tech4@test.local')");
   await sq("insert into users(id, branch_id, full_name, role) values ('00000000-0000-4000-8000-000000000004', $1, 'ช่าง 4', 'technician')", [B]);
   U.tech4 = '00000000-0000-4000-8000-000000000004';
+  // บัญชีช่างจริงมีอยู่ก่อน migration แต่ fixture ถูกสร้างหลัง apply → รันเฉพาะขั้นเปลี่ยนชื่อ (TASK B ของ 0010) กับ fixture
+  // (ห้าม apply 0010 ทั้งไฟล์ซ้ำ: จะเขียน _job_crew_required ทับฉบับ 0011 กลับเป็นของเก่า)
+  await sup.query(techRenameSql);
 
   // =====================================================================
   group('1. Seed / โครงหมวดหมู่');
@@ -1173,7 +1183,8 @@ async function main() {
     await rpc(U.admin, 'qc_pass', { p_job_id: jl2, p_answers: QC_OK });
     await payAndClose(jl2);
     const l = await labor(jl2);
-    eq(l.map((x) => [x.n, x.a]), [['ช่างหนุ่ม', 33.34], ['ช่างกิ้ม', 33.33], ['ช่างริด', 33.33]]);
+    // labor() เรียงตามชื่อ — หลังเปลี่ยนชื่อช่าง ลำดับตัวอักษรไม่ตรงลำดับรับงาน จึงเทียบแบบไม่สนลำดับ (คนรับก่อน = ช่างหนุ่ม ได้เศษ)
+    eq(l.map((x) => [x.n, x.a]).sort(), [['ช่างหนุ่ม', 33.34], ['ช่างกิ้ม', 33.33], ['ช่างริด', 33.33]].sort());
     eq(Math.round(l.reduce((s, x) => s + x.a, 0) * 100), 10000);
   });
   await test('ต้องการ 2 ช่างแต่ทำจริงคนเดียว → ได้เต็ม (หารด้วยคนที่ทำจริง) ; คูณจำนวน (qty)', async () => {
@@ -1401,7 +1412,7 @@ async function main() {
     eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [crewJob] }, { table: true }))[0].crew_required, 1, 'legacy ยังต้องใช้ 1 คน');
   });
   await test('TASK B: mapping เปลี่ยนชื่อช่าง 1→หนุ่ม / 2→กิ้ม / 3→ริด / 4→วี โดย id เดิมคงอยู่', async () => {
-    // migration 0010 ถูก apply ตอนสร้างฐานข้อมูลแล้ว — ตรวจว่า mapping ทำงานบนบัญชีจริง "ช่าง 1..4"
+    // fixture สร้างเป็น "ช่าง 1..4" แล้วผ่านขั้นเปลี่ยนชื่อของ 0010 — ตรวจว่า mapping ทำงานบนบัญชีเดิม
     for (const [name, want] of [['tech', 'ช่างหนุ่ม'], ['tech2', 'ช่างกิ้ม'], ['tech3', 'ช่างริด'], ['tech4', 'ช่างวี']]) {
       const r = await one('select full_name from users where id = $1', [U[name]]);
       eq(r.full_name, want, `ชื่อของ ${name}`);
@@ -1411,7 +1422,7 @@ async function main() {
     eq((await one("select full_name from users where id = $1", [U.owner])).full_name, 'owner');
     eq((await one("select full_name from users where id = $1", [U.wh])).full_name, 'wh');
     // รันซ้ำอีกครั้ง → ไม่มีแถวตรงเงื่อนไขเดิมเหลือ (idempotent จริง)
-    await sup.query(fs.readFileSync(path.join(root, 'supabase/migrations/0010_multi_technician_assignment.sql'), 'utf8'));
+    await sup.query(techRenameSql);
     eq((await one("select count(*)::int c from users where full_name ~ '^ช่าง ?[1-4]$'")).c, 0, 'ต้องไม่มีชื่อเดิมเหลือ');
     eq((await one('select full_name from users where id = $1', [U.tech])).full_name, 'ช่างหนุ่ม');
   });
@@ -1448,10 +1459,10 @@ async function main() {
   await test('ทีม 4 คน: ตั้งครบ, ลดเหลือ 3 (required ไม่หดย้อนหลัง — กัน race), นำออกทีละคนจนเหลือ 1', async () => {
     const j4 = await readyJob('QWEN-CREW-4', [{ code: 'AC-CL-004' }]);
     await rpc(U.admin, 'set_job_crew', { p_job_id: j4, p_user_ids: [U.tech, U.tech2, U.tech3, U.tech4] });
-    eq(await activeCrew(j4).length, 4);
+    eq((await activeCrew(j4)).length, 4);
     eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [j4] }, { table: true }))[0].member_names.length, 4, 'รายงานเห็นชื่อครบ 4 คน');
     await rpc(U.admin, 'set_job_crew', { p_job_id: j4, p_user_ids: [U.tech, U.tech2, U.tech3] });
-    eq(await activeCrew(j4).length, 3);
+    eq((await activeCrew(j4)).length, 3);
     eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [j4] }, { table: true }))[0].crew_required, 4, 'เพดานต้องไม่หดกลับ (กันคนนอกชิงช่องว่าง)');
     // เอาออกทีละคนผ่าน API เดิม (remove_technician) — ต้องทำงานกับทีมหลายคนได้
     await rpc(U.admin, 'remove_technician', { p_job_id: j4, p_user_id: U.tech3, p_reason: 'ถอนตัว' });
@@ -1492,12 +1503,12 @@ async function main() {
     const j = await readyJob('QWEN-PAY-10', [{ code: 'AC-CL-001' }]);   // service ค่าแรง 400 (ตั้งราคาก่อน)
     await setPrice('AC-CL-001', 400);
     await rpc(U.admin, 'set_job_crew', { p_job_id: j, p_user_ids: [U.tech, U.tech2] });
-    eq(await activeCrew(j).length, 2);
+    eq((await activeCrew(j)).length, 2);
     await rpc(U.tech, 'advance_job', { p_job_id: j });    // in_progress
     await rpc(U.tech2, 'advance_job', { p_job_id: j });   // qc (ช่างคนที่ 2 ก็ขยับได้ — ทีมหลายคน)
     await rpc(U.admin, 'qc_pass', { p_job_id: j, p_answers: QC_OK });
     await payAndClose(j);
-    eq(await statusOf(j), 'completed');
+    eq(await statusOf(j), 'closed');
     const rows = await labor(j);
     eq(rows.length, 2, 'ต้องมีรายการค่าแรงครบทั้งทีม 2 คน');
     eq(rows.map((x) => x.a).sort((a, b) => a - b), [200, 200], 'หารเท่าตามคนทำจริง 2 คน (กติกาเดิม D24 — ไม่แตะ)');

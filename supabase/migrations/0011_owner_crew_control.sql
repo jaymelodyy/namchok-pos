@@ -126,14 +126,8 @@ begin
      where job_id = j.id and released_at is null and not (user_id = any (v_ids));
   end if;
 
-  -- รับคนใหม่เข้าทีม (ข้ามคนที่มีอยู่แล้ว — กันซ้ำด้วย unique index เดิม)
-  foreach v_new in array v_ids loop
-    if not _is_assigned(j.id, v_new) then
-      perform _add_assignment(j, v_new);
-    end if;
-  end loop;
-
   -- ตั้ง "จำนวนช่างที่ต้องใช้" ตามทีมที่ผู้ดูแลสั่ง (ทำได้ทั้งเพิ่มและลด — คนที่ถูกปล่อยไปแล้วไม่นับ)
+  -- ต้องตั้งก่อนรับคนเข้าทีม: _add_assignment ตรวจเพดานทีละคน ถ้ายกทีหลังคนที่ 2 จะติด "รับครบแล้ว (1/1 คน)"
   -- เก็บค่าสูงสุดที่เคยตั้งไว้ใน crew_assigned (คอลัมน์ของ 0010) เพื่อไม่ให้เพดานหดต่ำกว่าประวัติเดิม
   if cardinality(v_ids) > 0 then
     update job_orders
@@ -141,6 +135,43 @@ begin
            crew_assigned = greatest(cardinality(v_ids), coalesce(crew_assigned, 0))
      where id = j.id;
   end if;
+
+  -- รับคนใหม่เข้าทีม (ข้ามคนที่มีอยู่แล้ว — กันซ้ำด้วย unique index เดิม)
+  foreach v_new in array v_ids loop
+    if not _is_assigned(j.id, v_new) then
+      perform _add_assignment(j, v_new);
+    end if;
+  end loop;
+end $$;
+
+-- ---------- RPC (0010) add_job_crew — ขยายเพดานตามจำนวนคนที่เพิ่ม ----------
+-- 0010 ไม่ยกเพดาน → งานปกติ (ต้องใช้ 1 คน) เพิ่มคนที่ 2 ไม่ได้ ติด "รับครบแล้ว" แบบเดียวกับอาการเดิม
+-- ตรวจครบทุกคนก่อนแล้วค่อยยกเพดาน+รับคน ; error กลางทาง → ธุรกรรม rollback ทั้งก้อน
+create or replace function add_job_crew(p_job_id uuid, p_user_ids uuid[])
+returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_branch uuid := app_assert(array['owner', 'admin']::user_role[]);
+  j job_orders; v_ids uuid[]; v_new uuid; v_target int;
+begin
+  if p_user_ids is null or cardinality(p_user_ids) = 0 then raise exception 'ต้องระบุช่างอย่างน้อย 1 คน'; end if;
+  select array_agg(x order by x) into v_ids from unnest(p_user_ids) as x;
+  perform set_config('app.audit_reason', 'มอบหมายช่าง (เพิ่มหลายคน)', true);
+  j := _lock_job(p_job_id, v_branch);
+  foreach v_new in array v_ids loop
+    if not exists (select 1 from users u where u.id = v_new and u.branch_id = v_branch
+                     and u.role = 'technician' and u.is_active) then
+      raise exception 'ผู้ใช้ที่เลือกไม่ใช่ช่างที่ใช้งานอยู่';
+    end if;
+  end loop;
+  v_target := least(10, _job_crew_active(j.id) + cardinality(v_ids));
+  update job_orders
+     set required_crew = greatest(required_crew, v_target),
+         crew_assigned = greatest(coalesce(crew_assigned, 0), v_target)
+   where id = j.id;
+  foreach v_new in array v_ids loop
+    perform _add_assignment(j, v_new);
+  end loop;
 end $$;
 
 -- ---------- RPC ใหม่ : เพิ่ม/ถอดทีละคนโดยไม่แตะจำนวนที่เหลือ (owner/admin) ----------
@@ -189,7 +220,9 @@ begin
 end $$;
 
 -- ---------- อ่านค่าเพิ่มสำหรับหน้าจอ ----------
-create or replace function job_crew_info(p_jobs uuid[])
+-- คืนคอลัมน์เพิ่ม (required_crew) → return type เปลี่ยน ต้อง drop ก่อน (create or replace เปลี่ยน return type ไม่ได้)
+drop function if exists job_crew_info(uuid[]);
+create function job_crew_info(p_jobs uuid[])
 returns table (job_id uuid, crew_required int, crew_active int, required_crew int, member_ids uuid[], member_names text[], mine boolean)
 language sql stable security definer set search_path = public, pg_temp as $$
   select j.id, _job_crew_required(j.id), _job_crew_active(j.id), j.required_crew,
@@ -204,10 +237,14 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- ---------- สิทธิ์ execute ตามรูปแบบเดิม ----------
+revoke execute on function job_crew_info(uuid[]) from public, anon;
+grant execute on function job_crew_info(uuid[]) to authenticated;
 revoke execute on function set_job_crew_required(uuid, int) from public, anon;
 grant execute on function set_job_crew_required(uuid, int) to authenticated;
 revoke execute on function set_job_crew(uuid, uuid[], text) from public, anon;
 grant execute on function set_job_crew(uuid, uuid[], text) to authenticated;
+revoke execute on function add_job_crew(uuid, uuid[]) from public, anon;
+grant execute on function add_job_crew(uuid, uuid[]) to authenticated;
 revoke execute on function add_technician(uuid, uuid) from public, anon;
 grant execute on function add_technician(uuid, uuid) to authenticated;
 revoke execute on function remove_technician(uuid, uuid, text) from public, anon;
