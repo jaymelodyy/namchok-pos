@@ -10,14 +10,15 @@ import type { Role } from '@/lib/types';
 import { LiveNotifier } from './live-notifier';
 import { Button, Plate, Spinner } from './ui';
 
-interface NavItem { href: string; label: string; icon: typeof Home; roles: Role[]; also?: string[] }
+interface NavItem { href: string; label: string; icon: typeof Home; roles: Role[]; also?: string[]; desktopOnly?: Role[] }
+// แถบล่างบนมือถือไม่เกิน 5 รายการ: desktopOnly = แสดงเฉพาะแถบข้างจอใหญ่ (มือถือเข้าได้จากหน้า "ตั้งค่า")
 const NAV: NavItem[] = [
   { href: '/', label: 'หน้าแรก', icon: Home, roles: ['owner', 'admin'] },
   { href: '/work', label: 'งานของฉัน', icon: Wrench, roles: ['technician'] },
   { href: '/jobs', label: 'ใบงาน', icon: ClipboardList, roles: ['owner', 'admin'] },
   { href: '/requisitions', label: 'เบิกอะไหล่', icon: PackageOpen, roles: ['owner', 'admin', 'warehouse'] },
   { href: '/labor', label: 'ค่าแรง', icon: Wallet, roles: ['technician'] },
-  { href: '/catalog', label: 'แคตตาล็อก', icon: BookOpen, roles: ['owner', 'admin', 'warehouse'] },
+  { href: '/catalog', label: 'แคตตาล็อก', icon: BookOpen, roles: ['owner', 'admin', 'warehouse'], desktopOnly: ['owner'] },
   { href: '/reports', label: 'รายงาน', icon: BarChart3, roles: ['owner'], also: ['/labor'] },
   { href: '/settings', label: 'ตั้งค่า', icon: Settings, roles: ['owner', 'admin', 'technician', 'warehouse'] },
 ];
@@ -71,12 +72,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="hidden px-3 pb-5 lg:block"><Plate plate="นช" className="w-full text-[1.7rem]" /></div>
         {items.map((n) => {
           const on = active(n);
+          const desktopOnly = Boolean(n.desktopOnly?.includes(role));
           const Icon = n.icon;
           return (
             <Link
               key={n.href} href={n.href} aria-current={on ? 'page' : undefined}
               className={cx(
                 'relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[12px] font-medium transition-colors lg:flex-none lg:py-3',
+                desktopOnly && 'hidden lg:flex',
                 on ? 'text-gold-hi' : 'text-mute hover:text-ivory',
               )}
             >

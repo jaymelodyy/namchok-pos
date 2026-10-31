@@ -1,7 +1,8 @@
 'use client';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { KanbanSquare, List, Search } from 'lucide-react';
+import { KanbanSquare, List, Plus, Search } from 'lucide-react';
 import { PageHeader } from '@/components/app-shell';
 import { JobBoard, inBoard } from '@/components/job-board';
 import { JobRow } from '@/components/job-row';
@@ -80,12 +81,17 @@ function JobsScreen() {
         }
       />
       <div className={cx('space-y-3 px-4 pb-2 pt-4', view === 'list' && 'mx-auto max-w-3xl')}>
-        <div className="relative">
+        <div className="flex gap-2">
+        <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-mute" aria-hidden />
           <input
-            type="search" aria-label="ค้นหาใบงาน" className="field pl-11" placeholder="ค้นด้วยทะเบียน ชื่อ เบอร์ หรือเลขใบงาน"
+            type="search" aria-label="ค้นหาใบงาน" className="field pl-11" placeholder="ทะเบียน ชื่อ เบอร์ หรือเลขงาน"
             value={q} onChange={(e) => setQ(e.target.value)}
           />
+        </div>
+        <Link href="/" className="btn btn-primary shrink-0 px-4" data-testid="new-job">
+          <Plus className="h-5 w-5" aria-hidden /><span className="hidden sm:inline">เปิดใบงานใหม่</span><span className="sm:hidden">ใบงานใหม่</span>
+        </Link>
         </div>
         {view === 'list' && (
           <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1" role="tablist" aria-label="กรองสถานะ">

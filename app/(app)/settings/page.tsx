@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { BookOpen, ChevronRight, LogOut } from 'lucide-react';
 import { PageHeader } from '@/components/app-shell';
 import { useToast } from '@/components/providers';
 import { Button, Field, Skeleton } from '@/components/ui';
@@ -68,6 +69,14 @@ export default function SettingsPage() {
           </div>
           <Button variant="outline" onClick={() => void signOut()}><LogOut className="h-4 w-4" aria-hidden />ออกจากระบบ</Button>
         </section>
+        {profile.role !== 'technician' && (
+          <Link href="/catalog" data-testid="settings-catalog"
+            className="flex min-h-tap items-center gap-3 rounded-xl border border-rule bg-raised px-4 py-3 text-[16px] font-medium hover:border-gold/50 lg:hidden">
+            <BookOpen className="h-5 w-5 text-gold-hi" aria-hidden />
+            <span className="flex-1">แคตตาล็อกสินค้าและบริการ</span>
+            <ChevronRight className="h-5 w-5 text-mute" aria-hidden />
+          </Link>
+        )}
 
         {isOwner && settings && (
           <>
