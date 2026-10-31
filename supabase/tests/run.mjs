@@ -35,6 +35,7 @@ const files = [
   'supabase/migrations/0009_realtime.sql',
   'supabase/migrations/0010_multi_technician_assignment.sql',
   'supabase/migrations/0011_owner_crew_control.sql',
+  'supabase/migrations/0012_unlimited_crew.sql',
   'supabase/seed.sql',
 ];
 
@@ -862,68 +863,63 @@ async function main() {
     ok(lines.length > 0, 'ช่างต้องเห็นรายการงาน');
     for (const r of lines) { eq(r.unit_price, null); eq(r.line_total, null); eq(r.labor_rate, null); }
   });
-  await test('รับงานพร้อมกัน 2 connection (crew 1): สำเร็จ 1 ล้มเหลว 1 — ทำซ้ำ 8 รอบ', async () => {
+  await test('รับงานพร้อมกัน (0012 ไม่จำกัดคน): ช่างคนเดียวกด 2 connection ได้ 1 แถว ; ช่างต่างคนได้ทุกคน — ทำซ้ำ 8 รอบ', async () => {
     for (let i = 0; i < 8; i++) {
       const j = await readyJob('แย่ง ' + i, [{ code: 'AC-CL-004' }]);
       const [c1, c2] = await Promise.all([connect(), connect()]);
-      const res = await Promise.allSettled([accept(j, U.tech, c1), accept(j, U.tech2, c2)]);
+      const res = await Promise.allSettled([accept(j, U.tech, c1), accept(j, U.tech, c2)]);
       await c1.end(); await c2.end();
       eq(res.filter((r) => r.status === 'fulfilled').length, 1, `รอบ ${i}`);
       const bad = res.find((r) => r.status === 'rejected');
-      ok(/มีช่างรับครบแล้ว|รับงานนี้อยู่แล้ว/.test(bad.reason.message), bad.reason.message);
-      eq((await activeCrew(j)).length, 1, `รอบ ${i} ต้องมีช่าง 1 คนพอดี`);
-    }
-  });
-  await test('รับงานพร้อมกัน 3 connection (crew 2): ได้พอดี 2 คน — ทำซ้ำ 5 รอบ', async () => {
-    for (let i = 0; i < 5; i++) {
-      const j = await readyJob('แย่ง3 ' + i, [{ code: 'AC-CL-001' }]);
+      ok(/รับงานนี้อยู่แล้ว|duplicate key/.test(bad.reason.message), bad.reason.message);
       const cs = await Promise.all([connect(), connect(), connect()]);
-      const res = await Promise.allSettled([accept(j, U.tech, cs[0]), accept(j, U.tech2, cs[1]), accept(j, U.tech3, cs[2])]);
+      const res2 = await Promise.allSettled([accept(j, U.tech2, cs[0]), accept(j, U.tech3, cs[1]), accept(j, U.tech4, cs[2])]);
       await Promise.all(cs.map((c) => c.end()));
-      eq(res.filter((r) => r.status === 'fulfilled').length, 2, `รอบ ${i}`);
-      eq((await activeCrew(j)).length, 2, `รอบ ${i}`);
+      eq(res2.filter((r) => r.status === 'fulfilled').length, 3, `รอบ ${i} (crew 1 แต่รับได้ 4 คน)`);
+      eq((await activeCrew(j)).length, 4, `รอบ ${i}`);
     }
   });
-  let jr2; // crew 2
-  await test('crew 2: รับได้ 2 คน คนที่ 3 ถูกปฏิเสธและมองไม่เห็นใบงานอีก ; รับซ้ำไม่ได้ ; job_crew_info ถูกต้อง', async () => {
+  let jr2; // crew 2 (ค่าแนะนำ)
+  await test('crew 2: คนที่ 3 รับเพิ่มได้ (ไม่จำกัด) ; รับซ้ำไม่ได้ ; ทุกคนยังเห็นงาน ; job_crew_info ถูกต้อง', async () => {
     jr2 = await readyJob('ทีม 2', [{ code: 'AC-CL-001' }]);
     await accept(jr2, U.tech);
     await rejects(accept(jr2, U.tech), /รับงานนี้อยู่แล้ว/);
     await accept(jr2, U.tech2);
-    await rejects(accept(jr2, U.tech3), /มีช่างรับครบแล้ว \(2\/2 คน\)/);
-    eq((await as(sup, U.tech3, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 0, 'ช่างคนที่ 3 ต้องมองไม่เห็นงานที่เต็มแล้ว');
-    for (const u of [U.tech, U.tech2]) eq((await as(sup, u, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1);
+    eq((await as(sup, U.tech3, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1, 'ทีมครบแล้วช่างคนอื่นยังเห็นงาน');
+    await accept(jr2, U.tech3);
+    for (const u of [U.tech, U.tech2, U.tech3, U.tech4]) eq((await as(sup, u, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1);
     const info = (await rpc(U.tech, 'job_crew_info', { p_jobs: [jr2] }, { table: true }))[0];
-    eq([info.crew_required, info.crew_active, info.mine], [2, 2, true]);
-    eq(info.member_names, ['ช่างหนุ่ม', 'ช่างกิ้ม']);
-    eq((await rpc(U.tech3, 'job_crew_info', { p_jobs: [jr2] }, { table: true })).length, 0);
+    eq([info.crew_required, info.crew_active, info.mine], [2, 3, true]);
+    eq(info.member_names, ['ช่างหนุ่ม', 'ช่างกิ้ม', 'ช่างริด']);
+    eq((await rpc(U.tech4, 'job_crew_info', { p_jobs: [jr2] }, { table: true }))[0].mine, false);
     eq((await rpc(U.wh, 'job_crew_info', { p_jobs: [jr2] }, { table: true })).length, 0);
     eq((await rpc(U.admin, 'job_crew_info', { p_jobs: [jr2] }, { table: true })).length, 1);
   });
-  await test('ช่างปล่อยงานก่อนเริ่มได้ → ช่องว่างกลับมา ช่างคนอื่นเห็นและรับได้ ; เริ่มงานแล้วปล่อยเองไม่ได้', async () => {
-    await rejects(rpc(U.tech3, 'release_job', { p_job_id: jr2 }), /ไม่พบใบงาน|คุณยังไม่ได้รับงานนี้/);
+  await test('ช่างปล่อยงานก่อนเริ่มได้ แล้วกลับมารับใหม่ได้ ; เริ่มงานแล้วปล่อยเองไม่ได้', async () => {
+    await rejects(rpc(U.tech4, 'release_job', { p_job_id: jr2 }), /คุณยังไม่ได้รับงานนี้/);
     await rpc(U.tech2, 'release_job', { p_job_id: jr2 });
-    eq((await activeCrew(jr2)).length, 1);
-    eq((await as(sup, U.tech3, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1);
-    eq((await as(sup, U.tech2, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1, 'ที่ว่างอีก 1 → ทุกคนเห็น');
-    await accept(jr2, U.tech3);
-    await rejects(accept(jr2, U.tech2), /ครบแล้ว/);
+    eq((await activeCrew(jr2)).length, 2);
+    eq((await as(sup, U.tech2, 'select 1 from job_orders where id=$1', [jr2])).rowCount, 1);
     const rel = await one("select release_reason, released_by from job_assignments where job_id=$1 and user_id=$2 and released_at is not null", [jr2, U.tech2]);
     eq([rel.release_reason, rel.released_by], ['ช่างปล่อยงานก่อนเริ่ม', U.tech2]);
+    await rpc(U.tech3, 'release_job', { p_job_id: jr2 });
+    await accept(jr2, U.tech3);   // กลับมารับใหม่ได้
+    eq((await activeCrew(jr2)).length, 2);
     eq(await rpc(U.tech, 'advance_job', { p_job_id: jr2 }), 'in_progress');
     await rejects(rpc(U.tech, 'release_job', { p_job_id: jr2 }), /ปล่อยงานเองได้เฉพาะ/);
     await rejects(rpc(U.tech2, 'advance_job', { p_job_id: jr2 }), /ต้องกด "รับงาน" ก่อน/);   // tech2 ปล่อยไปแล้ว
   });
-  await test('งานเริ่มแล้วแต่ยังขาดคน (crew 2 มีช่าง 1) ช่างคนอื่นยังเห็นและเข้ามาช่วยกลางงานได้', async () => {
+  await test('งานที่เริ่มแล้ว ช่างคนอื่นเห็นและเข้าร่วมกลางงานได้เสมอ แม้ทีมเกินจำนวนแนะนำ', async () => {
     const j = await readyJob('ช่วย 1', [{ code: 'AC-CL-001' }]);
     await accept(j, U.tech);
     await rpc(U.tech, 'advance_job', { p_job_id: j });   // in_progress ทั้งที่มีช่าง 1/2
     eq(await statusOf(j), 'in_progress');
-    eq((await as(sup, U.tech2, 'select 1 from job_orders where id=$1', [j])).rowCount, 1);
     await accept(j, U.tech2);
-    eq((await as(sup, U.tech3, 'select 1 from job_orders where id=$1', [j])).rowCount, 0);
+    eq((await as(sup, U.tech3, 'select 1 from job_orders where id=$1', [j])).rowCount, 1);
+    await accept(j, U.tech3);   // 3/2
+    eq((await activeCrew(j)).length, 3);
     // ช่างที่ไม่ได้รับงานเปลี่ยนสถานะไม่ได้
-    await rejects(rpc(U.tech3, 'advance_job', { p_job_id: j }), /ต้องกด "รับงาน" ก่อน/);
+    await rejects(rpc(U.tech4, 'advance_job', { p_job_id: j }), /ต้องกด "รับงาน" ก่อน/);
   });
   await test('ช่างเห็นงานขั้นเช็คสภาพแต่กดรับไม่ได้ ; ขั้นเสนอราคา/รอชำระ ช่างไม่เห็นเลย', async () => {
     const jq = await quotedJob('ขั้น 1', [{ code: 'AC-CL-004' }]);
@@ -942,14 +938,15 @@ async function main() {
     await rejects(rpc(U.admin, 'assign_technician', { p_job_id: j, p_user_id: U.wh }), /ไม่ใช่ช่าง/);
     await rejects(rpc(U.admin, 'assign_technician', { p_job_id: j, p_user_id: U.owner2 }), /ไม่ใช่ช่าง/);
     await rpc(U.admin, 'assign_technician', { p_job_id: j, p_user_id: U.tech2 });
-    await rejects(rpc(U.admin, 'assign_technician', { p_job_id: j, p_user_id: U.tech3 }), /ครบแล้ว/);
+    await rpc(U.admin, 'assign_technician', { p_job_id: j, p_user_id: U.tech3 });   // เกินจำนวนแนะนำได้ (0012)
+    await rejects(rpc(U.admin, 'assign_technician', { p_job_id: j, p_user_id: U.tech3 }), /รับงานนี้อยู่แล้ว/);
+    await rpc(U.admin, 'remove_technician', { p_job_id: j, p_user_id: U.tech3, p_reason: 'ทดสอบเอาออก' });
     await rejects(rpc(U.admin, 'remove_technician', { p_job_id: j, p_user_id: U.tech2, p_reason: ' ' }), /ต้องระบุเหตุผล/);
     await rejects(rpc(U.tech, 'remove_technician', { p_job_id: j, p_user_id: U.tech2, p_reason: 'x' }), /ไม่มีสิทธิ์/);
     await rpc(U.tech2, 'advance_job', { p_job_id: j });   // in_progress
     await rejects(rpc(U.admin, 'remove_technician', { p_job_id: j, p_user_id: U.tech2, p_reason: 'ช่างป่วย' }), /อย่างน้อย 1 คน/);
     await rpc(U.admin, 'remove_technician', { p_job_id: j, p_user_id: U.tech, p_reason: 'ไม่มีคนนี้อยู่แล้ว' }).then(
       () => { throw new Error('ต้องไม่ผ่าน: tech ไม่ได้อยู่ในงานนี้'); }, (e) => ok(/ไม่ได้รับงานนี้/.test(e.message), e.message));
-    // เปลี่ยนตัว: มอบหมายคนใหม่ไม่ได้เพราะเต็ม → ปล่อยคนเดิมไม่ได้ (ต้องมี ≥1) ; ผ่านการยกเลิก/ย้อนสถานะแทน
     await rpc(U.admin, 'cancel_job', { p_job_id: j, p_reason: 'ทดสอบ' });
     eq((await activeCrew(j)).length, 0, 'ยกเลิกใบงานต้องปล่อยช่างทั้งหมด');
   });

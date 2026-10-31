@@ -322,7 +322,6 @@ function primaryAction(
   const missing = checks.filter((c) => !c.completed).length;
   const hasLines = items.some((i) => i.item_type !== 'discount' && i.item_type !== 'bundle');
   const openReqs = requisitions.filter((r) => r.status === 'requested' || r.status === 'prepared').length;
-  const slots = crew ? Math.max(0, crew.crew_required - crew.crew_active) : 0;
 
   switch (job.status) {
     case 'booked':
@@ -350,9 +349,8 @@ function primaryAction(
     case 'ready':
       if (isTech) {
         if (crew?.mine) return { label: 'เริ่มงาน', disabled: missing > 0, hint: missing > 0 ? `เช็คสภาพยังไม่ครบ ${missing} ฟอร์ม` : undefined, run: () => act(() => advanceJob(id), 'เริ่มงานแล้ว') };
-        return slots > 0
-          ? { label: 'รับงานนี้', run: () => act(() => acceptJob(id), 'รับงานแล้ว') }
-          : { label: 'มีช่างรับครบแล้ว', disabled: true };
+        // 0012: จำนวนช่างเป็นค่าแนะนำ — ทีมครบแล้วก็ยังกดรับเพิ่มได้
+        return { label: 'รับงานนี้', run: () => act(() => acceptJob(id), 'รับงานแล้ว') };
       }
       return {
         label: 'เริ่มงาน', disabled: missing > 0 || (crew?.crew_active ?? 0) < 1,
@@ -360,7 +358,7 @@ function primaryAction(
         run: () => act(() => advanceJob(id), 'เริ่มงานแล้ว'),
       };
     case 'in_progress':
-      if (isTech && !crew?.mine) return slots > 0 ? { label: 'เข้าร่วมงานนี้', run: () => act(() => acceptJob(id), 'เข้าร่วมงานแล้ว') } : null;
+      if (isTech && !crew?.mine) return { label: 'เข้าร่วมงานนี้', run: () => act(() => acceptJob(id), 'เข้าร่วมงานแล้ว') };
       return { label: 'ส่งตรวจ QC', run: () => act(() => advanceJob(id), 'ส่งตรวจ QC แล้ว') };
     case 'qc':
       return adminLike ? { label: 'บันทึกผล QC', run: async () => open.qc() } : null;

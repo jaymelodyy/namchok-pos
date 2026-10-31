@@ -1,5 +1,5 @@
 // เฟส 2 — ใครเห็นอะไร (ตรวจทั้งหน้าจอและระดับฐานข้อมูลด้วยบทบาทจริง ไม่ใช่แค่ซ่อนปุ่ม)
-//   ช่าง: ไม่เห็นเงิน/การชำระ/คืนเงิน/ผล QC/คำขอเบิก ; เห็นเฉพาะงานที่ตัวเองรับ หรืองานที่ยังมีที่ว่าง ; ค่าแรงเห็นเฉพาะของตัวเอง
+//   ช่าง: ไม่เห็นเงิน/การชำระ/คืนเงิน/ผล QC/คำขอเบิก ; เห็นงานพร้อมทำ/กำลังทำทุกใบ (0012 ไม่จำกัดคน) + งานรอ QC ที่ตัวเองรับ ; ค่าแรงเห็นเฉพาะของตัวเอง
 //   คลัง: ไม่เห็นใบงาน/ลูกค้า/เงินเลย เห็นเฉพาะคำขอเบิก
 import { execFileSync } from 'node:child_process';
 import { openActors, runner, shot, BASE } from './lib.mjs';
@@ -24,16 +24,16 @@ const { browser, actors } = await openActors({ tech: 'tech@demo.local', tech2: '
 const { tech, tech2, stock } = actors;
 const body = (p) => p.locator('body').innerText();
 const money = (t) => (t.match(/฿\s?[\d,.]+/) ?? [])[0];
-const PLATE = 'ฆง 8842';                                  // กำลังทำ — ช่างหนึ่งรับไว้ (งานเต็มแล้ว)
+const PLATE = 'ฆง 8842';                                  // กำลังทำ — ช่างหนึ่งรับไว้ (ทีมครบตามจำนวนแนะนำ)
 const jid = sql(`select id from v_jobs where plate = '${PLATE}'`);
 const crew = sql(`select _job_crew_active(id) || '/' || _job_crew_required(id) from job_orders where id = '${jid}'`);
 const url = `${BASE}/jobs/${jid}`;
 const anyJob = sql(`select id from v_jobs where plate = 'นพ 3021'`);
 
 try {
-  await R.step(`ข้อมูลตั้งต้น: ${PLATE} มีช่างรับครบแล้ว (${crew}) — ช่างสองจึงต้องไม่เห็นงานนี้`, async () => {
+  await R.step(`ข้อมูลตั้งต้น: ${PLATE} มีช่างรับครบตามจำนวนแนะนำแล้ว (${crew})`, async () => {
     const [a, r] = crew.split('/').map(Number);
-    if (a < r) throw new Error('งานนี้ยังมีที่ว่าง (' + crew + ') การทดสอบ "ช่างอีกคนไม่เห็น" ใช้ไม่ได้ — ตรวจ seed');
+    if (a < r) throw new Error('งานนี้ยังขาดคน (' + crew + ') — ตรวจ seed');
   });
 
   await R.step('DB (ในฐานะช่าง): payments / refunds / requisitions / qc_checks ไม่มีแถวให้เห็นเลย ; ค่าแรงเห็นเฉพาะของตัวเอง', async () => {
@@ -102,14 +102,16 @@ try {
     if (new URL(tech.page.url()).pathname === '/reports') throw new Error('ช่างเข้า /reports ได้');
   });
 
-  await R.step(`ช่างสอง: เปิดงาน ${PLATE} ของช่างหนึ่ง (เต็มแล้ว) → "ไม่พบใบงานนี้" และไม่อยู่ในรายการใด ๆ ของ "งานของฉัน"`, async () => {
+  await R.step(`ช่างสอง: งาน ${PLATE} ทีมครบแล้วแต่ยังเห็นและเข้าร่วมได้ (0012) — ไม่เห็นเงิน`, async () => {
     await tech2.page.goto(url, { waitUntil: 'networkidle' });
     await tech2.page.waitForTimeout(600);
     const t = await body(tech2.page);
-    if (!/ไม่พบใบงานนี้/.test(t)) throw new Error('ช่างสองเปิดงานของคนอื่นได้ หรือข้อความไม่ใช่ "ไม่พบใบงานนี้": ' + t.slice(0, 120));
+    if (/ไม่พบใบงานนี้/.test(t)) throw new Error('ช่างสองต้องเปิดงานที่ทีมครบแล้วได้');
+    if (money(t)) throw new Error('ช่างสองเห็นเงิน: ' + money(t));
+    if (!/เข้าร่วมงานนี้/.test(t)) throw new Error('ไม่มีปุ่ม "เข้าร่วมงานนี้"');
     await tech2.page.goto(`${BASE}/work`, { waitUntil: 'networkidle' });
     await tech2.page.waitForTimeout(600);
-    if ((await tech2.page.locator('[data-testid=work-card]', { hasText: PLATE }).count()) !== 0) throw new Error('งานของช่างหนึ่งโผล่ในหน้างานของช่างสอง');
+    if ((await tech2.page.locator('[data-testid=group-open] [data-testid=work-card]', { hasText: PLATE }).count()) !== 1) throw new Error('งานนี้ควรอยู่ในกลุ่มงานว่างของช่างสอง');
   });
 
   await R.step('คลัง: /jobs ถูกเด้งไปหน้าเบิกอะไหล่ ; เปิดใบงานตรง ๆ ไม่ได้ ("ไม่พบใบงานนี้") ; /labor /reports เด้งออก', async () => {
