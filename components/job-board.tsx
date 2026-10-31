@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useMemo } from 'react';
 import { Clock, PackageOpen, Users } from 'lucide-react';
-import { Money, Plate } from './ui';
+import { Money, Plate, StatusBadge } from './ui';
 import { REQ_LABEL } from './requisition-card';
 import { TECH_STATE_LABEL, TECH_STATE_TONE } from './job/crew';
 import { cx, vehicleLabel } from '@/lib/format';
@@ -44,7 +44,7 @@ export function TechStrip({ techs }: { techs: TechnicianRow[] }) {
         {techs.map((t) => (
           <div key={t.user_id} data-state={t.state} data-tech={t.full_name} className={cx('shrink-0 rounded-xl border px-3.5 py-2', TECH_STATE_TONE[t.state])}>
             <p className="text-[15px] font-medium leading-tight">{t.full_name}</p>
-            <p className="text-[12px] opacity-90">{TECH_STATE_LABEL[t.state]}{t.jobs.length > 0 ? ` · ${t.jobs.map((j) => j.plate).join(', ')}` : ''}</p>
+            <p className="text-[13px] opacity-90">{TECH_STATE_LABEL[t.state]}{t.jobs.length > 0 ? ` · ${t.jobs.map((j) => j.plate).join(', ')}` : ''}</p>
           </div>
         ))}
       </div>
@@ -73,14 +73,14 @@ export function JobBoard({ data, now }: { data: BoardData; now: number }) {
               <header className="sticky top-0 flex items-baseline justify-between gap-2 rounded-t-2xl border-b border-rule px-3.5 py-3">
                 <div className="min-w-0">
                   <h3 className="truncate font-display text-[15px] font-semibold">{col.label}</h3>
-                  <p className="truncate text-[12px] text-mute">{col.hint}</p>
+                  <p className="truncate text-[13px] text-mute">{col.hint}</p>
                 </div>
                 <span className="num rounded-full border border-rule bg-inset px-2.5 py-0.5 text-[13px] text-dim" data-testid="col-count">{list.length}</span>
               </header>
               <ul className="space-y-2.5 p-2.5">
                 {list.length === 0 && <li className="px-2 py-6 text-center text-[13px] text-mute">ไม่มีงาน</li>}
                 {list.map((j) => (
-                  <li key={j.id}><BoardCard job={j} crew={data.crew[j.id]} reqs={reqByJob.get(j.id) ?? []} now={now} /></li>
+                  <li key={j.id}><BoardCard job={j} crew={data.crew[j.id]} reqs={reqByJob.get(j.id) ?? []} now={now} showStatus={col.statuses.length > 1} /></li>
                 ))}
               </ul>
             </section>
@@ -91,7 +91,7 @@ export function JobBoard({ data, now }: { data: BoardData; now: number }) {
   );
 }
 
-function BoardCard({ job, crew, reqs, now }: { job: VJob; crew?: CrewInfo; reqs: Requisition[]; now: number }) {
+function BoardCard({ job, crew, reqs, now, showStatus }: { job: VJob; crew?: CrewInfo; reqs: Requisition[]; now: number; showStatus?: boolean }) {
   const age = dwell(job.status_changed_at, now);
   const stale = age.hours >= 24;
   const owing = job.status === 'awaiting_payment' && job.balance > 0;
@@ -101,28 +101,30 @@ function BoardCard({ job, crew, reqs, now }: { job: VJob; crew?: CrewInfo; reqs:
       className="block rounded-xl border border-rule bg-lacquer px-3 py-3 transition-colors hover:border-gold/50 active:bg-inset">
       <div className="flex items-start justify-between gap-2">
         <Plate plate={job.plate} province={job.plate_province} className="text-[1.15rem]" />
-        <span className={cx('flex shrink-0 items-center gap-1 text-[12px]', stale ? 'text-warn' : 'text-mute')} title={`อยู่ขั้น "${STATUS_LABEL[job.status]}" มา ${age.text}`}>
+        <span className={cx('flex shrink-0 items-center gap-1 text-[13px]', stale ? 'text-warn' : 'text-mute')} title={`อยู่ขั้น "${STATUS_LABEL[job.status]}" มา ${age.text}`}>
           <Clock className="h-3.5 w-3.5" aria-hidden /><span className="num">{age.text}</span>
         </span>
       </div>
       <p className="mt-2 truncate text-[15px] font-medium">{job.customer_name}</p>
-      <p className="truncate text-[13px] text-dim">{vehicleLabel(job)} · <span className="num">{job.job_no}</span></p>
+      <p className="truncate text-[14px] text-dim">{vehicleLabel(job)} · <span className="num">{job.job_no}</span></p>
+      {job.complaint && <p className="mt-0.5 line-clamp-2 text-[14px] text-ivory/90" data-testid="board-complaint">{job.complaint}</p>}
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        {showStatus && <StatusBadge status={job.status} />}
         {job.status === 'requisition' && (lead
-          ? <span className="inline-flex items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2.5 py-0.5 text-[12px] text-warn" data-testid="req-chip">
+          ? <span className="inline-flex items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2.5 py-0.5 text-[13px] text-warn" data-testid="req-chip">
               <PackageOpen className="h-3.5 w-3.5" aria-hidden />{lead.req_no} · {REQ_LABEL[lead.status]}
             </span>
-          : <span className="inline-flex items-center gap-1 rounded-full border border-rule px-2.5 py-0.5 text-[12px] text-mute">ไม่มีอะไหล่ต้องเบิก</span>)}
+          : <span className="inline-flex items-center gap-1 rounded-full border border-rule px-2.5 py-0.5 text-[13px] text-mute">ไม่มีอะไหล่ต้องเบิก</span>)}
         {crew && (job.status === 'ready' || job.status === 'in_progress' || job.status === 'qc') && (
           crew.member_names.length > 0
             ? <>
-                {crew.member_names.slice(0, 3).map((n) => <span key={n} className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2.5 py-0.5 text-[12px] text-gold-hi" data-testid="crew-chip"><Users className="h-3.5 w-3.5" aria-hidden />{n}</span>)}
-                {crew.member_names.length > 3 && <span className="inline-flex items-center rounded-full border border-gold/40 px-2.5 py-0.5 text-[12px] text-gold-hi" title={crew.member_names.slice(3).join(', ')}>+{crew.member_names.length - 3}</span>}
+                {crew.member_names.slice(0, 3).map((n) => <span key={n} className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2.5 py-0.5 text-[13px] text-gold-hi" data-testid="crew-chip"><Users className="h-3.5 w-3.5" aria-hidden />{n}</span>)}
+                {crew.member_names.length > 3 && <span className="inline-flex items-center rounded-full border border-gold/40 px-2.5 py-0.5 text-[13px] text-gold-hi" title={crew.member_names.slice(3).join(', ')}>+{crew.member_names.length - 3}</span>}
               </>
-            : <span className="inline-flex items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2.5 py-0.5 text-[12px] text-warn" data-testid="crew-chip">ยังไม่มีช่างรับ</span>
+            : <span className="inline-flex items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2.5 py-0.5 text-[13px] text-warn" data-testid="crew-chip">ยังไม่มีช่างรับ</span>
         )}
         {crew && job.status === 'ready' && crew.crew_required > 1 && (
-          <span className="num text-[12px] text-mute">{crew.crew_active}/{crew.crew_required} คน</span>
+          <span className="num text-[13px] text-mute">{crew.crew_active}/{crew.crew_required} คน</span>
         )}
         {owing && <span className="text-[13px] text-warn">ค้าง <Money v={job.balance} /></span>}
       </div>

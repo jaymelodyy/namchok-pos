@@ -10,14 +10,15 @@ import type { Role } from '@/lib/types';
 import { LiveNotifier } from './live-notifier';
 import { Button, Plate, Spinner } from './ui';
 
-interface NavItem { href: string; label: string; icon: typeof Home; roles: Role[]; also?: string[] }
+interface NavItem { href: string; label: string; icon: typeof Home; roles: Role[]; also?: string[]; desktopOnly?: Role[] }
+// แถบล่างบนมือถือไม่เกิน 5 รายการ: desktopOnly = แสดงเฉพาะแถบข้างจอใหญ่ (มือถือเข้าได้จากหน้า "ตั้งค่า")
 const NAV: NavItem[] = [
   { href: '/', label: 'หน้าแรก', icon: Home, roles: ['owner', 'admin'] },
   { href: '/work', label: 'งานของฉัน', icon: Wrench, roles: ['technician'] },
   { href: '/jobs', label: 'ใบงาน', icon: ClipboardList, roles: ['owner', 'admin'] },
   { href: '/requisitions', label: 'เบิกอะไหล่', icon: PackageOpen, roles: ['owner', 'admin', 'warehouse'] },
   { href: '/labor', label: 'ค่าแรง', icon: Wallet, roles: ['technician'] },
-  { href: '/catalog', label: 'แคตตาล็อก', icon: BookOpen, roles: ['owner', 'admin', 'warehouse'] },
+  { href: '/catalog', label: 'แคตตาล็อก', icon: BookOpen, roles: ['owner', 'admin', 'warehouse'], desktopOnly: ['owner'] },
   { href: '/reports', label: 'รายงาน', icon: BarChart3, roles: ['owner'], also: ['/labor'] },
   { href: '/settings', label: 'ตั้งค่า', icon: Settings, roles: ['owner', 'admin', 'technician', 'warehouse'] },
 ];
@@ -55,6 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const role = state.profile.role;
   const items = NAV.filter((n) => n.roles.includes(role));
   const wide = pathname === '/jobs' && (role === 'owner' || role === 'admin');
+  const splitDetail = /^\/jobs\/[^/]+$/.test(pathname) && (role === 'owner' || role === 'admin');   // จอ xl: รายการงาน + รายละเอียด (jobs/[id]/layout.tsx)
   const active = (n: NavItem) => {
     const hit = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
     return hit(n.href) || Boolean(n.also?.some(hit));
@@ -63,7 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh lg:pl-24">
       <LiveNotifier />
-      <main className={cx('mx-auto w-full pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-12', wide ? 'max-w-none' : 'max-w-3xl')}>{children}</main>
+      <main className={cx('mx-auto w-full pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-12', wide ? 'max-w-none' : splitDetail ? 'max-w-3xl xl:max-w-none' : 'max-w-3xl')}>{children}</main>
       <nav
         aria-label="เมนูหลัก"
         className="no-print fixed inset-x-0 bottom-0 z-40 flex border-t border-rule bg-lacquer/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:inset-y-0 lg:right-auto lg:w-24 lg:flex-col lg:justify-start lg:gap-1 lg:border-r lg:border-t-0 lg:pb-0 lg:pt-6"
@@ -71,12 +73,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="hidden px-3 pb-5 lg:block"><Plate plate="นช" className="w-full text-[1.7rem]" /></div>
         {items.map((n) => {
           const on = active(n);
+          const desktopOnly = Boolean(n.desktopOnly?.includes(role));
           const Icon = n.icon;
           return (
             <Link
               key={n.href} href={n.href} aria-current={on ? 'page' : undefined}
               className={cx(
                 'relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-[12px] font-medium transition-colors lg:flex-none lg:py-3',
+                desktopOnly && 'hidden lg:flex',
                 on ? 'text-gold-hi' : 'text-mute hover:text-ivory',
               )}
             >

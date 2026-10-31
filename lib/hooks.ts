@@ -63,3 +63,16 @@ export function useNow(ms = 60000): number {
   }, [ms]);
   return now;
 }
+
+/** true เมื่อหน้าจอตรง media query (ฝั่ง client เท่านั้น ; ตอนแรกเป็น false เพื่อไม่ให้ SSR ไม่ตรงกัน) */
+export function useMediaQuery(query: string): boolean {
+  const [match, setMatch] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setMatch(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [query]);
+  return match;
+}
