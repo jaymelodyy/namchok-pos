@@ -1,5 +1,5 @@
 #!/bin/bash
-# สร้างฐานข้อมูล Postgres ในเครื่อง (ไม่ใช่ Supabase จริง) แล้วรัน stub + migration 0001→0011 + seed
+# สร้างฐานข้อมูล Postgres ในเครื่อง (ไม่ใช่ Supabase จริง) แล้วรัน stub + migration 0001→0012 + seed
 # usage: tools/db/apply-all.sh <ชื่อฐานข้อมูล>     ต้องตั้ง PGHOST PGPORT PGUSER (และ PGPASSWORD ถ้ามี)
 # คำเตือน: จะ DROP ฐานข้อมูลชื่อนั้นทิ้งก่อนสร้างใหม่ — ใช้กับชื่อ *_test / *_demo เท่านั้น
 set -e
@@ -12,6 +12,7 @@ for f in supabase/tests/00_supabase_stub.sql supabase/migrations/0001_schema.sql
          supabase/migrations/0005_hide_money_from_non_finance.sql \
          supabase/migrations/0006_phase2_amendments.sql supabase/migrations/0007_assignments_requisitions.sql \
          supabase/migrations/0008_qc_labor.sql supabase/migrations/0009_realtime.sql \
-         supabase/migrations/0010_multi_technician_assignment.sql supabase/migrations/0011_owner_crew_control.sql supabase/seed.sql; do
+         supabase/migrations/0010_multi_technician_assignment.sql supabase/migrations/0011_owner_crew_control.sql \
+         supabase/migrations/0012_unlimited_crew.sql supabase/seed.sql; do
   echo "== $f"; psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$f" 2>&1 | head -20
 done

@@ -109,7 +109,7 @@ try {
   });
   const cutNow = async () => { cut.on = true; for (const p of [...cut.live]) { p.ws.close(); await p.server.close().catch(() => {}); } };
 
-  await R.step('ทางสำรอง: หน้าช่างเสียการเชื่อมต่อเรียลไทม์ → ตัวบอกเป็น "ออฟไลน์" ; ระหว่างหลุดงานถูกรับจนเต็ม ; พอต่อกลับหน้าตามทันเองโดยไม่รีโหลด', async () => {
+  await R.step('ทางสำรอง: หน้าช่างเสียการเชื่อมต่อเรียลไทม์ → ตัวบอกเป็น "ออฟไลน์" ; ระหว่างหลุดมีช่างอีกคนถูกมอบหมาย ; พอต่อกลับหน้าตามทันเองโดยไม่รีโหลด', async () => {
     await tech.page.reload({ waitUntil: 'networkidle' });      // โหลดใหม่ 1 ครั้ง เพื่อให้ socket ใหม่ผ่านตัวควบคุม
     await keep(tech.page);
     await waitMs(async () => /สด/.test(await tech.page.locator('header').first().innerText()), { timeout: 8000, what: 'หน้าช่างต่อเรียลไทม์ได้ก่อนตัด' });
@@ -119,7 +119,8 @@ try {
     await waitMs(async () => /ออฟไลน์/.test(await tech.page.locator('header').first().innerText()), { timeout: 15000, what: 'ตัวบอกสถานะเป็นออฟไลน์' });
     await shot(tech.page, 'p2-rt-5-tech-offline', false);
 
-    // ระหว่างหลุด: admin (ยังออนไลน์) มอบหมายช่างสอง → งานเต็ม ควรหายจากรายการงานว่างของช่างหนึ่ง แต่หน้าช่างหนึ่งยังไม่รู้
+    // ระหว่างหลุด: admin (ยังออนไลน์) มอบหมายช่างสอง → การ์ดงานว่างของช่างหนึ่งควรขึ้นชื่อช่างสอง แต่หน้าช่างหนึ่งยังไม่รู้
+    // (0012: งานไม่หายจากงานว่างเมื่อทีมครบ เพราะช่างเข้าร่วมเพิ่มได้ไม่จำกัด)
     const act = await admin.ctx.newPage();
     await act.goto(`${BASE}/jobs`, { waitUntil: 'networkidle' });
     await act.locator('[data-testid=view-list]').click();
@@ -131,12 +132,13 @@ try {
     await act.getByText('มอบหมายช่างแล้ว').waitFor({ timeout: 5000 });
     await act.close();
     await tech.page.waitForTimeout(2500);
-    const stale = await tech.page.locator('[data-testid=group-open] [data-testid=work-card]', { hasText: PLATE }).count();
-    if (stale !== 1) throw new Error(`ระหว่างหลุด หน้าช่างควรยังแสดงข้อมูลเดิม (1) แต่เป็น ${stale} — แปลว่ามีช่องทางอื่นอัปเดต หรือการตัดไม่ได้ผล`);
+    const openCard = tech.page.locator('[data-testid=group-open] [data-testid=work-card]', { hasText: PLATE });
+    const stale = await openCard.innerText();
+    if (/ช่างสอง/.test(stale)) throw new Error('ระหว่างหลุด หน้าช่างควรยังแสดงข้อมูลเดิม แต่ขึ้นชื่อช่างสองแล้ว — แปลว่ามีช่องทางอื่นอัปเดต หรือการตัดไม่ได้ผล');
     console.log('   ระหว่างหลุด หน้าช่างยังเห็นงานเดิม (ข้อมูลค้าง) — ตามคาด');
 
     cut.on = false; times.t3 = Date.now();                       // ปล่อยให้ต่อกลับ → supabase-js ต่อใหม่เอง → SUBSCRIBED → โหลดซ้ำ
-    await waitMs(async () => (await tech.page.locator('[data-testid=group-open] [data-testid=work-card]', { hasText: PLATE }).count()) === 0, { timeout: 30000, every: 300, what: 'หน้าช่างตามทันหลังต่อกลับ' });
+    await waitMs(async () => /ช่างสอง/.test(await openCard.innerText()), { timeout: 30000, every: 300, what: 'หน้าช่างตามทันหลังต่อกลับ' });
     times.reconnectCatchUp = Date.now() - times.t3; console.log('   ต่อกลับแล้วตามทันใน', times.reconnectCatchUp, 'ms');
     await waitMs(async () => /สด/.test(await tech.page.locator('header').first().innerText()), { timeout: 5000, what: 'ตัวบอกกลับเป็นสด' });
     if (!(await kept(tech.page))) throw new Error('หน้าถูกรีโหลดระหว่างต่อกลับ');

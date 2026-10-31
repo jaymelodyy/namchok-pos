@@ -78,7 +78,7 @@ function split(d: WorkData | null) {
   const isLive = (j: VJob) => j.status === 'ready' || j.status === 'in_progress' || j.status === 'qc';
   return {
     mine: jobs.filter((j) => isLive(j) && crewOf(j)?.mine).sort(age),
-    open: jobs.filter((j) => (j.status === 'ready' || j.status === 'in_progress') && !crewOf(j)?.mine && (crewOf(j)?.crew_active ?? 0) < (crewOf(j)?.crew_required ?? 1)).sort(age),
+    open: jobs.filter((j) => (j.status === 'ready' || j.status === 'in_progress') && !crewOf(j)?.mine).sort(age),
     checking: jobs.filter((j) => j.status === 'condition_check').sort(age),
   };
 }
