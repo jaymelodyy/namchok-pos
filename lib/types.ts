@@ -138,4 +138,17 @@ export interface LaborEntry {
   qty: number; labor_rate: number; crew_actual: number; amount: number; earned_on: string;
   paid_at: string | null; voided_at: string | null; void_reason: string | null;
 }
+export interface WageDailyRow {
+  work_date: string; user_id: string; full_name: string; clocked_in_at: string; clocked_out_at: string | null;
+  late_minutes: number; base_wage: number; late_deduction: number; overtime_minutes: number;
+  overtime_amount: number; work_total: number; total: number; paid_at: string | null;
+}
+export interface WageWorkType {
+  id: string; code: string; name: string; unit_label: string; current_rate: number; is_active: boolean;
+}
+export interface WageWorkEntry {
+  id: string; user_id: string; work_date: string; work_name: string; unit_label: string;
+  quantity: number; unit_rate: number; amount: number; voided_at: string | null; void_reason: string | null;
+}
+export interface TechnicianBankDetails { user_id: string; bank_name: string; account_number: string }
 export interface VatSummary { job_count: number; gross_total: number; vat_total: number; ex_vat_total: number }

@@ -16,9 +16,10 @@ const NAV: NavItem[] = [
   { href: '/', label: 'หน้าแรก', icon: Home, roles: ['owner', 'admin'] },
   { href: '/work', label: 'งานของฉัน', icon: Wrench, roles: ['technician'] },
   { href: '/jobs', label: 'ใบงาน', icon: ClipboardList, roles: ['owner', 'admin'] },
-  { href: '/requisitions', label: 'เบิกอะไหล่', icon: PackageOpen, roles: ['owner', 'admin', 'warehouse'] },
-  { href: '/labor', label: 'ค่าแรง', icon: Wallet, roles: ['technician'] },
-  { href: '/catalog', label: 'แคตตาล็อก', icon: BookOpen, roles: ['owner', 'admin', 'warehouse'], desktopOnly: ['owner'] },
+  { href: '/requisitions', label: 'เบิกอะไหล่', icon: PackageOpen, roles: ['owner', 'admin', 'warehouse'], desktopOnly: ['owner'] },
+  { href: '/wages', label: 'ค่าแรงรายวัน', icon: Wallet, roles: ['owner', 'admin', 'technician'] },
+  { href: '/labor', label: 'ค่าแรงงานซ่อม', icon: Wallet, roles: ['technician'] },
+  { href: '/catalog', label: 'แคตตาล็อก', icon: BookOpen, roles: ['owner', 'admin', 'warehouse'], desktopOnly: ['owner', 'admin'] },
   { href: '/reports', label: 'รายงาน', icon: BarChart3, roles: ['owner'], also: ['/labor'] },
   { href: '/settings', label: 'ตั้งค่า', icon: Settings, roles: ['owner', 'admin', 'technician', 'warehouse'] },
 ];

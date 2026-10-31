@@ -4,7 +4,8 @@ import { num, plateNorm } from './format';
 import type {
   Answers, AuditRow, BranchSettings, CatalogItem, Category, CheckPhoto, CheckRequirement, CheckTemplate,
   ConditionCheck, CrewInfo, ItemPrice, JobItem, JobSource, JobStatus, LaborEntry, PayKind, PayMethod, Payment, Profile, QcCheck,
-  QcItem, Receipt, Refund, Requisition, RequisitionLine, RequisitionStatus, RevenueRow, StatusLog, TechnicianRow, VJob, VatSummary, Warranty,
+  QcItem, Receipt, Refund, Requisition, RequisitionLine, RequisitionStatus, RevenueRow, StatusLog, TechnicianBankDetails,
+  TechnicianRow, VJob, VatSummary, WageDailyRow, WageWorkEntry, WageWorkType, Warranty,
 } from './types';
 
 interface DbError { message?: string; code?: string }
@@ -20,7 +21,7 @@ function fail(e: DbError): never { throw new Error(friendly(e)); }
 /** เวลาที่ตัวเองเขียนข้อมูลสำเร็จล่าสุด — ใช้กันไม่ให้แจ้งเตือนในแอปเด้งซ้ำกับสิ่งที่เพิ่งกดเอง */
 let lastOwnWriteAt = 0;
 export const msSinceOwnWrite = () => Date.now() - lastOwnWriteAt;
-const READ_RPC = /^(job_items_for_job|job_required_checks|job_discount_blocked|job_crew_info|technician_board|qc_checklist|report_)/;
+const READ_RPC = /^(job_items_for_job|job_required_checks|job_discount_blocked|job_crew_info|technician_board|qc_checklist|report_|wage_daily_report$)/;
 async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
   const { data, error } = await sb().rpc(fn, args);
   if (error) fail(error);
@@ -336,6 +337,75 @@ export const markLaborPaid = (userId: string, from: string, to: string, note?: s
   rpc<number>('mark_labor_paid', { p_user_id: userId, p_from: from, p_to: to, p_note: note || undefined });
 export const unmarkLaborPaid = (userId: string, from: string, to: string, reason: string) =>
   rpc<number>('unmark_labor_paid', { p_user_id: userId, p_from: from, p_to: to, p_reason: reason });
+
+// ---------- ค่าแรงรายวัน ----------
+const normWageDaily = (r: WageDailyRow): WageDailyRow => ({
+  ...r, late_minutes: num(r.late_minutes), base_wage: num(r.base_wage), late_deduction: num(r.late_deduction),
+  overtime_minutes: num(r.overtime_minutes), overtime_amount: num(r.overtime_amount),
+  work_total: num(r.work_total), total: num(r.total),
+});
+const normWageWork = (r: WageWorkEntry): WageWorkEntry => ({
+  ...r, quantity: num(r.quantity), unit_rate: num(r.unit_rate), amount: num(r.amount),
+});
+export async function wageDailyReport(from: string, to: string): Promise<WageDailyRow[]> {
+  return ((await rpc<WageDailyRow[]>('wage_daily_report', { p_from: from, p_to: to })) ?? []).map(normWageDaily);
+}
+export const wageClockIn = () => rpc<string>('wage_clock_in');
+export const wageClockOut = () => rpc<void>('wage_clock_out');
+export const correctWageAttendance = (a: {
+  userId: string; workDate: string; clockedInAt: string; clockedOutAt: string | null; reason: string;
+}) => rpc<void>('wage_correct_attendance', {
+  p_user_id: a.userId, p_work_date: a.workDate, p_clocked_in_at: a.clockedInAt,
+  p_clocked_out_at: a.clockedOutAt, p_reason: a.reason,
+});
+export async function listWageWorkTypes(): Promise<WageWorkType[]> {
+  return rows<WageWorkType>(sb().from('wage_work_types')
+    .select('id,code,name,unit_label,current_rate,is_active').eq('is_active', true).order('code'))
+    .then((list) => list.map((r) => ({ ...r, current_rate: num(r.current_rate) })));
+}
+export async function updateWageWorkRate(id: string, rate: number) {
+  const { data, error } = await sb().from('wage_work_types').update({ current_rate: rate }).eq('id', id).select('id');
+  if (error) fail(error);
+  if (!data?.length) throw new Error('บันทึกอัตราไม่ได้ — ไม่มีสิทธิ์ หรือไม่พบประเภทงาน');
+}
+export async function listWageWorkEntries(f: { from: string; to: string; userId?: string }): Promise<WageWorkEntry[]> {
+  let q = sb().from('wage_work_entries').select('*').gte('work_date', f.from).lte('work_date', f.to)
+    .is('voided_at', null).order('work_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000);
+  if (f.userId) q = q.eq('user_id', f.userId);
+  return (await rows<WageWorkEntry>(q)).map(normWageWork);
+}
+export const recordWageWork = (a: { userId: string; workDate: string; workTypeId: string; quantity: number }) =>
+  rpc<string>('wage_record_work', {
+    p_user_id: a.userId, p_work_date: a.workDate, p_work_type_id: a.workTypeId, p_quantity: a.quantity,
+  });
+export const voidWageWork = (entryId: string, reason: string) =>
+  rpc<void>('wage_void_work', { p_entry_id: entryId, p_reason: reason });
+export const markWagePaid = (userId: string, workDate: string) =>
+  rpc<boolean>('wage_mark_paid', { p_user_id: userId, p_work_date: workDate });
+export const unmarkWagePaid = (userId: string, workDate: string, reason: string) =>
+  rpc<void>('wage_unmark_paid', { p_user_id: userId, p_work_date: workDate, p_reason: reason });
+export async function listTechnicianBankDetails(): Promise<TechnicianBankDetails[]> {
+  return rows<TechnicianBankDetails>(sb().from('technician_bank_details').select('user_id,bank_name,account_number'));
+}
+export async function saveTechnicianBankDetails(details: TechnicianBankDetails, branchId: string): Promise<void> {
+  const { error } = await sb().from('technician_bank_details').upsert({ ...details, branch_id: branchId }, { onConflict: 'user_id' });
+  if (error) fail(error);
+}
+async function teamRequest(method: 'POST' | 'DELETE', body: Record<string, string>) {
+  const { data, error } = await sb().auth.getSession();
+  if (error) fail(error);
+  if (!data.session) throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+  const response = await fetch('/api/team', {
+    method, cache: 'no-store',
+    headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json() as { error?: string };
+  if (!response.ok) throw new Error(result.error || 'จัดการบัญชีพนักงานไม่สำเร็จ');
+}
+export const createTechnicianAccount = (input: { email: string; fullName: string; password: string }) =>
+  teamRequest('POST', input);
+export const deactivateTechnicianAccount = (userId: string) => teamRequest('DELETE', { userId });
 
 // ---------- เงิน ----------
 export const recordPayment = (a: {

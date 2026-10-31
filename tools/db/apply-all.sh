@@ -13,6 +13,6 @@ for f in supabase/tests/00_supabase_stub.sql supabase/migrations/0001_schema.sql
          supabase/migrations/0006_phase2_amendments.sql supabase/migrations/0007_assignments_requisitions.sql \
          supabase/migrations/0008_qc_labor.sql supabase/migrations/0009_realtime.sql \
          supabase/migrations/0010_multi_technician_assignment.sql supabase/migrations/0011_owner_crew_control.sql \
-         supabase/migrations/0012_unlimited_crew.sql supabase/seed.sql; do
+         supabase/migrations/0012_unlimited_crew.sql supabase/migrations/0013_daily_wages.sql supabase/seed.sql; do
   echo "== $f"; psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$f" 2>&1 | head -20
 done
