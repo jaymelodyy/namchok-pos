@@ -115,7 +115,10 @@ function BoardCard({ job, crew, reqs, now }: { job: VJob; crew?: CrewInfo; reqs:
           : <span className="inline-flex items-center gap-1 rounded-full border border-rule px-2.5 py-0.5 text-[12px] text-mute">ไม่มีอะไหล่ต้องเบิก</span>)}
         {crew && (job.status === 'ready' || job.status === 'in_progress' || job.status === 'qc') && (
           crew.member_names.length > 0
-            ? crew.member_names.map((n) => <span key={n} className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2.5 py-0.5 text-[12px] text-gold-hi" data-testid="crew-chip"><Users className="h-3.5 w-3.5" aria-hidden />{n}</span>)
+            ? <>
+                {crew.member_names.slice(0, 3).map((n) => <span key={n} className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2.5 py-0.5 text-[12px] text-gold-hi" data-testid="crew-chip"><Users className="h-3.5 w-3.5" aria-hidden />{n}</span>)}
+                {crew.member_names.length > 3 && <span className="inline-flex items-center rounded-full border border-gold/40 px-2.5 py-0.5 text-[12px] text-gold-hi" title={crew.member_names.slice(3).join(', ')}>+{crew.member_names.length - 3}</span>}
+              </>
             : <span className="inline-flex items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2.5 py-0.5 text-[12px] text-warn" data-testid="crew-chip">ยังไม่มีช่างรับ</span>
         )}
         {crew && job.status === 'ready' && crew.crew_required > 1 && (

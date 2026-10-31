@@ -126,7 +126,8 @@ try {
     await act.getByText(PLATE).first().click();
     await act.waitForURL(/\/jobs\/[0-9a-f-]{36}/);
     await act.getByRole('button', { name: 'มอบหมายช่าง' }).click();
-    await act.getByRole('button', { name: /ช่างสอง/ }).click();
+    await act.getByRole('checkbox', { name: /ช่างสอง/ }).click();   // เลือกได้หลายคนแล้วกดบันทึกครั้งเดียว
+    await act.getByRole('button', { name: /มอบหมาย 1 คน/ }).click();
     await act.getByText('มอบหมายช่างแล้ว').waitFor({ timeout: 5000 });
     await act.close();
     await tech.page.waitForTimeout(2500);
