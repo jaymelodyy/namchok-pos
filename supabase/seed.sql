@@ -10,6 +10,15 @@ begin
   insert into branches(code, name) values ('NTW', 'นำโชคออโต้แอร์ สาขานาทวี') on conflict (code) do nothing;
   select id into v_branch from branches where code = 'NTW';
 
+  -- ---- อัตราค่าแรงรายวัน/งานเสริม (เก็บ rate snapshot ทุกครั้งที่บันทึกงาน) ----
+  insert into wage_work_types(branch_id, code, name, unit_label, current_rate) values
+    (v_branch, 'ELECTRICAL', 'งานไฟฟ้าเล็ก/งานเล็กน้อย', 'งาน', 20),
+    (v_branch, 'FILM', 'ติดฟิล์ม', 'แผ่น', 30),
+    (v_branch, 'AC_BOX', 'รื้อคอนโซล/ตู้แอร์', 'งาน', 50),
+    (v_branch, 'MIRROR', 'เปลี่ยนกระจกมองข้าง', 'งาน', 200),
+    (v_branch, 'REFRIGERANT', 'เติมน้ำยาแอร์', 'งาน', 0)
+  on conflict (branch_id, code) do nothing;
+
   -- ---- หมวดหลัก ----
   insert into catalog_categories(branch_id, code, name, sort_order) values
     (v_branch, 'AC', 'งานแอร์รถยนต์', 1),
