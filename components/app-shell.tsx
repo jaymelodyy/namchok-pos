@@ -56,6 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const role = state.profile.role;
   const items = NAV.filter((n) => n.roles.includes(role));
   const wide = pathname === '/jobs' && (role === 'owner' || role === 'admin');
+  const splitDetail = /^\/jobs\/[^/]+$/.test(pathname) && (role === 'owner' || role === 'admin');   // จอ xl: รายการงาน + รายละเอียด (jobs/[id]/layout.tsx)
   const active = (n: NavItem) => {
     const hit = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
     return hit(n.href) || Boolean(n.also?.some(hit));
@@ -64,7 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh lg:pl-24">
       <LiveNotifier />
-      <main className={cx('mx-auto w-full pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-12', wide ? 'max-w-none' : 'max-w-3xl')}>{children}</main>
+      <main className={cx('mx-auto w-full pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-12', wide ? 'max-w-none' : splitDetail ? 'max-w-3xl xl:max-w-none' : 'max-w-3xl')}>{children}</main>
       <nav
         aria-label="เมนูหลัก"
         className="no-print fixed inset-x-0 bottom-0 z-40 flex border-t border-rule bg-lacquer/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:inset-y-0 lg:right-auto lg:w-24 lg:flex-col lg:justify-start lg:gap-1 lg:border-r lg:border-t-0 lg:pb-0 lg:pt-6"

@@ -205,7 +205,7 @@ export default function JobPage() {
 
       {/* แถบปุ่มทำขั้นถัดไป */}
       {primary && !job.voided_at && (
-        <div className="no-print fixed inset-x-0 bottom-[calc(60px+env(safe-area-inset-bottom))] z-30 border-t border-rule bg-lacquer/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:left-24">
+        <div className="no-print fixed inset-x-0 bottom-[calc(60px+env(safe-area-inset-bottom))] z-30 border-t border-rule bg-lacquer/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:left-24 xl:left-[calc(6rem+var(--side,0rem))]">
           <div className="mx-auto flex max-w-3xl items-center gap-3">
             {primary.hint && <p className="min-w-0 flex-1 text-[13px] text-warn">{primary.hint}</p>}
             {primary.href ? (

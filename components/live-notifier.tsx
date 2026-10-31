@@ -2,7 +2,7 @@
 // แจ้งเตือนในแอปแบบเรียลไทม์ตามบทบาท (toast) + ตัวบอกสถานะการเชื่อมต่อ
 //   คลัง          : มีคำขอเบิกอะไหล่ใหม่
 //   เจ้าของ/แอดมิน : คลังจัดเตรียมอะไหล่แล้ว / อะไหล่ครบ ใบงานพร้อมเริ่มงาน
-//   ช่าง          : มีงานพร้อมทำ (รับงานได้)
+//   ช่าง          : มีงานพร้อมทำ (รับงานได้) / ถูกมอบหมายงาน / ถูกเอาออกจากงาน (โดยเจ้าของหรือแอดมิน)
 // หมายเหตุ: เป็นการแจ้งเตือนขณะเปิดแอปอยู่เท่านั้น (ยังไม่ใช่ push/LINE — เป็นงานเฟส 3)
 import { useRef } from 'react';
 import { useSession } from '@/lib/auth';
@@ -12,7 +12,7 @@ import { useToast } from './providers';
 import { cx } from '@/lib/format';
 
 export function LiveNotifier() {
-  const { role } = useSession();
+  const { role, profile } = useSession();
   const toast = useToast();
   const seen = useRef(new Set<string>());
 
@@ -25,7 +25,7 @@ export function LiveNotifier() {
   const buzz = () => { try { navigator.vibrate?.(60); } catch { /* ไม่รองรับก็ข้าม */ } };
 
   useLive(
-    role === 'warehouse' ? ['requisitions'] : role === 'technician' ? ['job_orders'] : ['requisitions', 'job_orders'],
+    role === 'warehouse' ? ['requisitions'] : role === 'technician' ? ['job_orders', 'job_assignments'] : ['requisitions', 'job_orders'],
     (evs: LiveEvent[]) => {
       for (const e of evs) {
         const r = e.record as Record<string, string | null | undefined>;
@@ -37,6 +37,15 @@ export function LiveNotifier() {
           }
           if ((role === 'admin' || role === 'owner') && e.type === 'UPDATE' && r.status === 'prepared' && once(`rq:${r.id}:prepared`) && !mine) {
             toast.ok(`คลังจัดเตรียมอะไหล่แล้ว ${r.req_no ?? ''} · ${r.plate ?? ''}`.trim());
+          }
+        }
+        // ช่าง: ถูกมอบหมาย/ถูกเอาออก โดยคนอื่น (created_by/released_by ไม่ใช่ตัวเอง) — กดรับเองไม่ต้องเด้ง
+        if (e.table === 'job_assignments' && role === 'technician' && r.user_id === profile.id) {
+          if (e.type === 'INSERT' && r.created_by !== profile.id && once(`as:${r.id}:new`)) {
+            toast.ok('คุณถูกมอบหมายงานใหม่ — ดูที่ "กำลังรับผิดชอบ"'); buzz();
+          }
+          if (e.type === 'UPDATE' && r.released_at && r.released_by !== profile.id && once(`as:${r.id}:released`)) {
+            toast.ok(`คุณถูกเอาออกจากงาน${r.release_reason ? ` (${r.release_reason})` : ''}`);
           }
         }
         if (e.table === 'job_orders' && e.type === 'UPDATE' && r.status === 'ready' && once(`job:${r.id}:ready:${r.status_changed_at}`) && !mine) {
