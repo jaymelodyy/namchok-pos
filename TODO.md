@@ -1,7 +1,17 @@
 # TODO.md
 
-> **สถานะ: เฟส 2 เสร็จตามสเปกและหยุดรอ Jay รีวิว — เฟส 3 ยังไม่ได้เริ่ม**
+> **สถานะ: เฟส 2 เสร็จตามสเปก ; เพิ่มโค้ดระบบค่าแรงรายวันใน branch แยกแล้ว แต่ยังไม่ได้ติดตั้ง migration 0013 หรือ deploy**
 > เฟส 3 (ตามสเปก): Dashboard · แจ้งเตือน LINE · ติดตามลูกค้า/ประกัน · รายงานเพิ่มเติม
+
+## ค่าแรงรายวัน (โค้ดใน branch นี้)
+- [x] ตารางลงเวลา/งานเพิ่ม/เรต snapshot/สถานะจ่าย และข้อมูลบัญชีธนาคารแยกสิทธิ์ (migration `0013_daily_wages.sql`)
+- [x] หน้าค่าแรงรายวันและการจัดการพนักงานสำหรับ owner/admin ; ช่างลงเวลาเองและเห็นยอดรวมทีม
+- [x] API สร้างบัญชีพนักงานฝั่ง server โดยใช้ `SUPABASE_SERVICE_ROLE_KEY` ; ปิดบัญชีไม่ลบประวัติ
+- [x] เพิ่มเทสต์ SQL สำหรับกติกาค่าแรง/สิทธิ์/เรตย้อนหลัง
+- [x] รัน `npm run test:db` บน Postgres 16: 126/126 ; e2e หน้าจอ `tools/e2e/p2-wages.mjs` 7/7 (dev-api ไม่ใช่ Supabase จริง)
+- [ ] ติดตั้ง migration 0013 และรัน `supabase/seed.sql` บน Supabase จริง
+- [ ] ตั้ง `SUPABASE_SERVICE_ROLE_KEY` ใน environment ฝั่ง server ของ Vercel ; ห้ามใช้ prefix `NEXT_PUBLIC_`
+- [ ] ตรวจหน้า `/wages` และ flow บัญชีธนาคาร/พนักงานหลังตั้งค่า Supabase แล้ว deploy
 
 ## ทำแล้วบน Supabase จริง (2026-10-25 — ดู README หัวข้อ 1.1)
 - [x] สร้างโปรเจกต์ `namchok-pos` (ref `juzdrmfytpfwdtctspre`) · ลง migration 0001→0009 + seed ไม่มี error · เทียบโครงสร้างตรงกับฐานทดสอบ · `tools/db/real-smoke.sql` ผ่าน 40/40

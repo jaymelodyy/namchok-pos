@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { BookOpen, ChevronRight, LogOut } from 'lucide-react';
+import { BookOpen, ChevronRight, LogOut, PackageOpen } from 'lucide-react';
 import { PageHeader } from '@/components/app-shell';
 import { useToast } from '@/components/providers';
 import { Button, Field, Skeleton } from '@/components/ui';
@@ -74,6 +74,14 @@ export default function SettingsPage() {
             className="flex min-h-tap items-center gap-3 rounded-xl border border-rule bg-raised px-4 py-3 text-[16px] font-medium hover:border-gold/50 lg:hidden">
             <BookOpen className="h-5 w-5 text-gold-hi" aria-hidden />
             <span className="flex-1">แคตตาล็อกสินค้าและบริการ</span>
+            <ChevronRight className="h-5 w-5 text-mute" aria-hidden />
+          </Link>
+        )}
+        {isOwner && (
+          <Link href="/requisitions" data-testid="settings-requisitions"
+            className="flex min-h-tap items-center gap-3 rounded-xl border border-rule bg-raised px-4 py-3 text-[16px] font-medium hover:border-gold/50 lg:hidden">
+            <PackageOpen className="h-5 w-5 text-gold-hi" aria-hidden />
+            <span className="flex-1">เบิกอะไหล่</span>
             <ChevronRight className="h-5 w-5 text-mute" aria-hidden />
           </Link>
         )}

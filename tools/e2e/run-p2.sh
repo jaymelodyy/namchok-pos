@@ -6,7 +6,7 @@ cd "$(dirname "$0")/../.."
 export PGHOST="${PGHOST:-127.0.0.1}" PGPORT="${PGPORT:-54329}" PGUSER="${PGUSER:-postgres}"
 bash tools/e2e/reset-demo.sh | tail -3
 fail=0; summary=""
-for s in p2-realtime p2-payment-live p2-accept-race p2-qc-close p2-refund p2-visibility; do
+for s in p2-realtime p2-payment-live p2-accept-race p2-qc-close p2-refund p2-visibility p2-wages; do
   echo; echo "################ $s"
   out=$(node "tools/e2e/$s.mjs" 2>&1); rc=$?
   echo "$out" | grep -v '^shot'

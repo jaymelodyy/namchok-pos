@@ -6,7 +6,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { sb } from './supabase';
 
-export type LiveTable = 'job_orders' | 'job_assignments' | 'requisitions' | 'payments' | 'refunds' | 'qc_checks' | 'labor_pay_entries';
+export type LiveTable =
+  | 'job_orders' | 'job_assignments' | 'requisitions' | 'payments' | 'refunds' | 'qc_checks' | 'labor_pay_entries'
+  | 'wage_attendance' | 'wage_work_entries';
 export type LiveStatus = 'connecting' | 'live' | 'offline';
 export interface LiveEvent { table: LiveTable; type: 'INSERT' | 'UPDATE' | 'DELETE'; record: Record<string, unknown> }
 

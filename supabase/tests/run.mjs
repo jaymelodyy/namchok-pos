@@ -36,6 +36,7 @@ const files = [
   'supabase/migrations/0010_multi_technician_assignment.sql',
   'supabase/migrations/0011_owner_crew_control.sql',
   'supabase/migrations/0012_unlimited_crew.sql',
+  'supabase/migrations/0013_daily_wages.sql',
   'supabase/seed.sql',
 ];
 
@@ -1380,13 +1381,13 @@ async function main() {
   // =====================================================================
   group('17. Realtime: ตารางที่หน้าบอร์ดต้องรู้ทันที อยู่ใน publication ; migration รันซ้ำได้');
   await test('supabase_realtime มีครบ 7 ตาราง และ migration 0009 รันซ้ำไม่ error', async () => {
-    const want = ['job_assignments', 'job_orders', 'labor_pay_entries', 'payments', 'qc_checks', 'refunds', 'requisitions'];
+    const want = ['job_assignments', 'job_orders', 'labor_pay_entries', 'payments', 'qc_checks', 'refunds', 'requisitions', 'wage_attendance', 'wage_work_entries'];
     const get = async () => (await sq("select tablename from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' order by 1")).map((r) => r.tablename);
     eq(await get(), want);
     await sup.query(fs.readFileSync(path.join(root, 'supabase/migrations/0009_realtime.sql'), 'utf8'));
     eq(await get(), want);
     // ตารางที่มีข้อมูลอ่อนไหวเกินความจำเป็นต้องไม่อยู่ใน publication
-    for (const t of ['audit_logs', 'customers', 'receipts', 'item_prices']) ok(!(await get()).includes(t), t);
+    for (const t of ['audit_logs', 'customers', 'receipts', 'item_prices', 'technician_bank_details']) ok(!(await get()).includes(t), t);
   });
   await test('Realtime ส่งเหตุการณ์ตาม RLS ของผู้ฟัง: ช่าง/คลังอ่านตารางเหล่านี้ได้เท่าที่นโยบายอนุญาตเท่านั้น', async () => {
     eq((await as(sup, U.tech, 'select 1 from payments')).rowCount, 0);
@@ -1510,6 +1511,109 @@ async function main() {
     eq(rows.length, 2, 'ต้องมีรายการค่าแรงครบทั้งทีม 2 คน');
     eq(rows.map((x) => x.a).sort((a, b) => a - b), [200, 200], 'หารเท่าตามคนทำจริง 2 คน (กติกาเดิม D24 — ไม่แตะ)');
     ok(rows.every((x) => x.c === 2), 'crew_actual = 2');
+  });
+
+  // =====================================================================
+  group('18. ค่าแรงรายวัน / บันทึกเวลา / โบนัสงาน');
+  let wageDate;
+  await test('ตั้งต้นอัตรางาน 5 แบบตามที่ร้านกำหนด', async () => {
+    eq((await sq('select code, current_rate::float rate from wage_work_types order by code')).map((r) => [r.code, r.rate]), [
+      ['AC_BOX', 50], ['ELECTRICAL', 20], ['FILM', 30], ['MIRROR', 200], ['REFRIGERANT', 0],
+    ]);
+  });
+  await test('ช่างลงเวลาเองได้วันละครั้ง และเฉพาะตัวเอง; ผู้จัดการแก้เวลาได้พร้อมเหตุผล', async () => {
+    // ช่างลงเวลาเอง = วันนี้ ; การแก้เวลา/คิดยอดใช้ "เมื่อวาน" เพื่อไม่ให้ผลขึ้นกับเวลาที่รันทดสอบ (แก้เวลาในอนาคตไม่ได้)
+    const todayD = await today();
+    wageDate = (await one("select ((now() at time zone 'Asia/Bangkok')::date - 1)::text as d")).d;
+    await rpc(U.tech, 'wage_clock_in');
+    await rejects(rpc(U.tech, 'wage_clock_in'), /ลงเวลาเข้าแล้ว/);
+    await rpc(U.tech, 'wage_clock_out');
+    await rejects(rpc(U.tech, 'wage_clock_out'), /ลงเวลาออกแล้ว/);
+    eq((await one('select work_date::text d from wage_attendance where user_id=$1 and clocked_out_at is not null', [U.tech])).d, todayD);
+    await rejects(rpc(U.tech2, 'wage_correct_attendance', {
+      p_user_id: U.tech, p_work_date: wageDate, p_clocked_in_at: `${wageDate}T09:10:00+07:00`,
+      p_clocked_out_at: `${wageDate}T18:30:00+07:00`, p_reason: 'ทดสอบ',
+    }), /ไม่มีสิทธิ์/);
+    await rejects(rpc(U.admin, 'wage_correct_attendance', {
+      p_user_id: U.tech, p_work_date: wageDate, p_clocked_in_at: `${wageDate}T09:10:00+07:00`,
+      p_clocked_out_at: `${wageDate}T08:30:00+07:00`, p_reason: 'เวลาสลับ',
+    }), /เวลาไม่ถูกต้อง/);
+    await rpc(U.admin, 'wage_correct_attendance', {
+      p_user_id: U.tech, p_work_date: wageDate, p_clocked_in_at: `${wageDate}T09:10:00+07:00`,
+      p_clocked_out_at: `${wageDate}T18:30:00+07:00`, p_reason: 'แก้เวลาตอกบัตร',
+    });
+  });
+  await test('ค่าจ้างรายวันคิด 400 บาท หักสาย 2 บาท/นาที และ OT ตามนาทีจริงที่ 100 บาท/ชั่วโมง', async () => {
+    const r = (await rpc(U.tech, 'wage_daily_report', { p_from: wageDate, p_to: wageDate }, { table: true }))
+      .find((x) => x.user_id === U.tech);
+    ok(r, 'ช่างเห็นยอดของตัวเอง');
+    eq([Number(r.late_minutes), Number(r.late_deduction), Number(r.overtime_minutes), Number(r.overtime_amount)],
+      [10, 20, 90, 150]);
+    eq(Number(r.total), 530, '400 - 20 + 150');
+    eq((await rpc(U.admin, 'wage_daily_report', { p_from: wageDate, p_to: wageDate }, { table: true })).length, 1,
+      'ผู้จัดการเห็นข้อมูลพนักงาน');
+    await rejects(rpc(U.tech, 'wage_daily_report', { p_from: wageDate, p_to: '2000-01-01' }, { table: true }), /ช่วงวันที่ไม่ถูกต้อง/);
+  });
+  await test('ผู้จัดการเพิ่มงานตามจำนวน; เก็บอัตราและยอด ณ ตอนบันทึก แม้แก้อัตราภายหลัง', async () => {
+    const typeId = (await one("select id from wage_work_types where code = 'ELECTRICAL'")).id;
+    await rpc(U.admin, 'wage_record_work', {
+      p_user_id: U.tech, p_work_date: wageDate, p_work_type_id: typeId, p_quantity: 3,
+    });
+    await rejects(rpc(U.tech, 'wage_record_work', {
+      p_user_id: U.tech, p_work_date: wageDate, p_work_type_id: typeId, p_quantity: 1,
+    }), /ไม่มีสิทธิ์/);
+    await rejects(rpc(U.admin, 'wage_record_work', {
+      p_user_id: U.tech, p_work_date: wageDate, p_work_type_id: typeId, p_quantity: 0,
+    }), /จำนวนไม่ถูกต้อง/);
+    await as(sup, U.admin, "update wage_work_types set current_rate = 99 where id = $1", [typeId]);
+    await rpc(U.admin, 'wage_record_work', {
+      p_user_id: U.tech, p_work_date: wageDate, p_work_type_id: typeId, p_quantity: 2,
+    });
+    const r = (await rpc(U.tech, 'wage_daily_report', { p_from: wageDate, p_to: wageDate }, { table: true }))
+      .find((x) => x.user_id === U.tech);
+    eq([Number(r.work_total), Number(r.total)], [258, 788]);
+    const entries = await sq('select unit_rate::float, amount::float from wage_work_entries where user_id=$1 order by created_at', [U.tech]);
+    eq(entries, [{ unit_rate: 20, amount: 60 }, { unit_rate: 99, amount: 198 }]);
+    eq((await as(sup, U.tech, 'select 1 from wage_work_types')).rowCount, 0, 'ช่างอ่านเรตจัดการไม่ได้');
+  });
+  await test('พนักงานทุกคนเห็นสรุปค่าจ้างรวมของทีม แต่ข้อมูลบัญชีธนาคารเห็นได้เฉพาะผู้จัดการ', async () => {
+    await as(sup, U.admin, `insert into technician_bank_details(user_id, branch_id, bank_name, account_number)
+      values ($1, $2, 'ธนาคารทดสอบ', '1234567890')
+      on conflict (user_id) do update set bank_name=excluded.bank_name, account_number=excluded.account_number`,
+    [U.tech, B]);
+    const all = await rpc(U.tech2, 'wage_daily_report', { p_from: wageDate, p_to: wageDate }, { table: true });
+    ok(all.some((r) => r.user_id === U.tech && Number(r.total) === 788), 'ช่างคนอื่นเห็นยอดรวม');
+    eq((await as(sup, U.tech, 'select 1 from technician_bank_details')).rowCount, 0);
+    eq((await as(sup, U.admin, 'select account_number from technician_bank_details where user_id=$1', [U.tech])).rows[0].account_number,
+      '1234567890');
+    await rejects(as(sup, U.tech, "insert into technician_bank_details(user_id, branch_id, bank_name, account_number) values ($1,$2,'x','1')", [U.tech, B]), /permission denied|row-level security/);   // grant มีแต่ RLS กันไว้
+    await rejects(as(sup, U.admin, 'update wage_work_entries set unit_rate=999'), /permission denied/);
+    await rejects(as(sup, U.admin, 'delete from wage_work_entries'), /permission denied/);
+    await rejects(sup.query('delete from wage_work_entries'), /ห้ามลบข้อมูล/);
+  });
+  await test('ผู้จัดการทำเครื่องหมายจ่ายรายวันได้; แก้เวลาหลังจ่ายจะกลับเป็นค้างจ่าย', async () => {
+    eq(await rpc(U.admin, 'wage_mark_paid', { p_user_id: U.tech, p_work_date: wageDate }), true);
+    eq(await rpc(U.admin, 'wage_mark_paid', { p_user_id: U.tech, p_work_date: wageDate }), false, 'กันการจ่ายซ้ำ');
+    await rejects(rpc(U.tech, 'wage_mark_paid', { p_user_id: U.tech, p_work_date: wageDate }), /ไม่มีสิทธิ์/);
+    await rpc(U.admin, 'wage_correct_attendance', {
+      p_user_id: U.tech, p_work_date: wageDate, p_clocked_in_at: `${wageDate}T09:10:00+07:00`,
+      p_clocked_out_at: `${wageDate}T18:31:00+07:00`, p_reason: 'แก้เวลาออก',
+    });
+    const r = (await rpc(U.tech, 'wage_daily_report', { p_from: wageDate, p_to: wageDate }, { table: true }))
+      .find((x) => x.user_id === U.tech);
+    eq(r.paid_at, null, 'เปลี่ยนยอดหลังจ่ายต้องเปิดสถานะค้างจ่าย');
+    eq(Number(r.total), 789.67);
+  });
+  await test('ปิดบัญชีช่างแล้วเข้าใช้ระบบไม่ได้ แต่ประวัติลงเวลาและยอดย้อนหลังยังอยู่', async () => {
+    await rpc(U.admin, 'deactivate_technician', { p_user_id: U.tech });
+    eq((await one('select is_active from users where id=$1', [U.tech])).is_active, false);
+    eq((await as(sup, U.tech, 'select 1 from wage_attendance')).rowCount, 0);
+    const history = (await rpc(U.admin, 'wage_daily_report', { p_from: wageDate, p_to: wageDate }, { table: true }))
+      .find((r) => r.user_id === U.tech);
+    ok(history, 'เก็บประวัติของช่างที่ปิดบัญชี');
+    eq(Number(history.total), 789.67);
+    eq((await one('select count(*)::int c from wage_work_entries where user_id=$1', [U.tech])).c, 2);
+    await sq('update users set is_active = true where id = $1', [U.tech]);
   });
 
   // =====================================================================
